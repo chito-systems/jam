@@ -11,5 +11,5 @@ resources:
   - httproute.yaml
 images:
   - name: app
-    newName: ghcr.io/OWNER/REPO
-    newTag: "0000000"
+    newName: ghcr.io/chito-systems/jam
+    newTag: "10aa0a6"
