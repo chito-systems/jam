@@ -21,11 +21,13 @@ struct JAMApp: App {
 }
 
 enum Server {
-    static let defaultURL = "https://computer100.tail75f6b5.ts.net"
+    /// The team's deployed JAM. A different address typed on the "Can't reach" screen is kept.
+    static let defaultURL = "https://jam.cnh.radarhq.io"
 }
 
 struct RootView: View {
-    @AppStorage("server") private var server = Server.defaultURL
+    // A new key, so phones that stored the old laptop address move to the cluster.
+    @AppStorage("jamServer") private var server = Server.defaultURL
     @State private var editing = false
     @State private var failure: String?
     @State private var loaded = false
@@ -61,7 +63,7 @@ struct Connecting: View {
     var body: some View {
         VStack(spacing: 10) {
             Text("JAM").font(.system(size: 40, weight: .heavy)).tracking(-1.2)
-            Text(attempt < 2 ? "Connecting…" : "Waiting for Tailscale…")
+            Text(attempt < 2 ? "Connecting…" : "Still connecting…")
                 .font(.footnote.monospaced())
                 .foregroundStyle(.secondary)
         }
@@ -81,7 +83,7 @@ struct ServerSheet: View {
             if let failure {
                 Text("Can't reach \(server)").font(.headline)
                 Text(failure).font(.subheadline).foregroundStyle(.secondary)
-                Text("Open the Tailscale app and check it's connected, and that the laptop is running JAM.")
+                Text("Check this phone is online. A laptop address only works on Tailscale or the same Wi-Fi.")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             Text("SERVER").font(.caption.monospaced()).foregroundStyle(.secondary)
