@@ -4,7 +4,7 @@
 #
 #   ./scripts/jam-agent.sh cam-opus-1              # backend agent working for cam
 #   ./scripts/jam-agent.sh jake-sonnet-2 frontend  # frontend agent working for jake
-#   ./scripts/jam-agent.sh cam-opus-2 backend -- --model opus   # extra args go to claude
+#   ./scripts/jam-agent.sh cam-opus-2 backend -- --resume       # extra args go to claude
 #
 # Name convention: <human>-<model>-<n>. JAM reads the part before the first dash as
 # the person the agent works for. Env: JAM_URL (default the hosted JAM), JAM_TEAM (hh).
@@ -23,4 +23,6 @@ trap 'rm -f "$config"' EXIT
 printf '{"mcpServers":{"jam":{"type":"http","url":"%s"}}}\n' "$url" > "$config"
 
 echo "Starting Claude Code as agent:${name} (${side}) on JAM. First thing to ask it: \"call whoami, then task_next\"."
-claude --mcp-config "$config" "$@"
+# Agents run on Opus unless told otherwise (JAM_AGENT_MODEL, or pass --model after --).
+model="${JAM_AGENT_MODEL:-opus}"
+claude --model "$model" --mcp-config "$config" "$@"
