@@ -53,7 +53,11 @@ export function percentile(sorted: number[], p: number): number | undefined {
   return sorted[Math.min(sorted.length, Math.max(1, rank)) - 1];
 }
 
-export function sloFrom(captures: CaptureStatus[]): StatsResponse["slo"] {
+/** The SLO is "what someone said is searchable in under 10 s". Repo activity pulled in by the GitHub poller arrives in bursts and is not a person waiting, so it is not counted. */
+const HUMAN_CAPTURE_TYPES = new Set(["voice", "text", "file"]);
+
+export function sloFrom(all: CaptureStatus[]): StatsResponse["slo"] {
+  const captures = all.filter((c) => HUMAN_CAPTURE_TYPES.has(c.type));
   const ms = captures
     .map((c) => c.ms_to_searchable)
     .filter((n): n is number => typeof n === "number")
