@@ -3,7 +3,7 @@
 // (work orders, the librarian's guesses), and say things into the brain from anywhere.
 // Reading transcripts, files and the terminal stays on the laptop.
 import type { ItemDoc, ItemVerdict, TaskDoc } from '@hh/shared'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './companion.css'
 import { armAudio, playChime } from './chime'
 import { Guide, guideSeen, HelpIcon } from './Guide'
@@ -12,6 +12,7 @@ import { Mark } from './Mark'
 import { justIn, needsYou } from './needs'
 import { acceptOrder, dismissOrder, orderFor } from './orders'
 import { FreezeClock } from './parts'
+import { Burst } from './Burst'
 import { Talk } from './Talk'
 
 const KIND_LABEL: Partial<Record<ItemDoc['kind'], string>> = { decision: 'Decision', todo: 'Todo', blocker: 'Blocker', question: 'Question' }
@@ -22,6 +23,12 @@ export function Companion({ id, live, onSignOut }: { id: Identity; live: Live; o
   const [handled, setHandled] = useState<Set<string>>(() => new Set())
   const [toast, setToast] = useState('')
   const [writing, setWriting] = useState(false)
+  const [burst, setBurst] = useState<{ x: number; y: number; n: number } | null>(null)
+  const endBurst = useCallback(() => setBurst(null), [])
+  const press = useCallback((b: HTMLElement) => {
+    const r = b.getBoundingClientRect()
+    setBurst((p) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2, n: (p?.n ?? 0) + 1 }))
+  }, [])
   const prev = useRef<TaskDoc[] | null>(null)
 
   useEffect(() => {
@@ -117,10 +124,11 @@ export function Companion({ id, live, onSignOut }: { id: Identity; live: Live; o
           <PenIcon />
         </button>
         <div className="c-talk">
-          <Talk id={id} onOutgoing={() => {}} />
+          <Talk id={id} onOutgoing={() => {}} toggle onPress={press} />
         </div>
       </footer>
 
+      {burst && <Burst key={burst.n} x={burst.x} y={burst.y} onDone={endBurst} />}
       {writing && <NoteSheet id={id} onClose={() => setWriting(false)} />}
       {guide && <Guide id={id} live={live} onSignOut={onSignOut} onClose={() => setGuide(false)} />}
     </div>

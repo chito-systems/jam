@@ -36,3 +36,14 @@ describe('just in', () => {
     expect(justIn([doc('a', 'task:1'), doc('b'), doc('c')], 5).map((d) => d.id)).toEqual(['b', 'c'])
   })
 })
+
+describe('talk burst', () => {
+  it('inks quickly as the ring arrives and lifts slower, nothing outside it', async () => {
+    const { bump } = await import('./Burst')
+    expect(bump(-0.1)).toBe(0)
+    expect(bump(0.28)).toBeCloseTo(1)
+    expect(bump(0.14)).toBeCloseTo(0.5)
+    expect(bump(0.64)).toBeCloseTo(0.5)
+    expect(bump(1)).toBe(0)
+  })
+})

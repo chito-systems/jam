@@ -236,14 +236,14 @@ export function Guide({ id, live, onSignOut, onClose }: { id: Identity; live: Li
               <div className="g-act"><button type="button" className="text-btn" onClick={onSignOut}>Change</button></div>
             </Step>
             <Step done={done.mic} title="Turn on the microphone">
-              <p>{done.mic ? 'On. Hold the bar at the bottom to talk.' : `Hold to talk records what you say. ${IN_APP ? 'iPhone' : 'The browser'} asks once.`}</p>
+              <p>{done.mic ? 'On. Tap the bar at the bottom to talk.' : `Talk records what you say. ${IN_APP ? 'iPhone' : 'The browser'} asks once.`}</p>
               {micMsg && <p className="bad" role="alert">{micMsg}</p>}
               {!done.mic && (
                 <div className="g-act"><button type="button" className="btn primary" onClick={() => void allowMic()}>Allow microphone</button></div>
               )}
             </Step>
             <Step done={done.say} title="Say one thing">
-              <p>{done.say ? 'The brain has something from you. Every agent on the team can find it.' : 'Hold the bar below, say what you are working on, and let go. It lands in the brain in a few seconds.'}</p>
+              <p>{done.say ? 'The brain has something from you. Every agent on the team can find it.' : 'Tap the bar below, say what you are working on, and tap again to send. It lands in the brain in a few seconds.'}</p>
             </Step>
             {steps.includes('install') && (
               <Step done={done.install} title="Add JAM to your home screen">
