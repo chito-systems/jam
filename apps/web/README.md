@@ -28,13 +28,4 @@ There is no service worker and nothing is cached offline: merge to `main` → th
 
 ## Icons
 
-`public/` holds the manifest and icons. They are drawn from the `jam` mark in `src/ade/Mark.tsx`. To redraw them:
-
-```sh
-node apps/web/scripts/icons.mjs /tmp/jam-icons
-cp /tmp/jam-icons/favicon.svg apps/web/public/
-sips -s format png -z 512 512 /tmp/jam-icons/icon.svg --out apps/web/public/icon-512.png
-sips -s format png -z 192 192 /tmp/jam-icons/icon.svg --out apps/web/public/icon-192.png
-sips -s format png -z 512 512 /tmp/jam-icons/icon-maskable.svg --out apps/web/public/icon-maskable-512.png
-sips -s format png -z 180 180 /tmp/jam-icons/apple-touch-icon.svg --out apps/web/public/apple-touch-icon.png
-```
+`public/` holds the manifest and icons: the `jam` mark from `src/ade/Mark.tsx`, pink ink on paper.
