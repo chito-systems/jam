@@ -16,6 +16,7 @@ export const ROUTES = {
   taskAccept: "/api/tasks/:id/accept", // POST TaskAcceptRequest -> 200 TaskDoc (now claimed) | 409 TaskConflict
   stats: "/api/stats", // GET ?team_id= -> StatsResponse (the dashboard's numbers)
   itemVerdict: "/api/items/:id/verdict", // POST ItemVerdictRequest -> ItemDoc (a human confirms or rejects what the librarian extracted)
+  agents: "/api/agents", // GET ?team_id= -> AgentsResponse (which coding agents are on the team right now)
   chaos: "/api/chaos", // GET -> ChaosState · POST ChaosRequest -> ChaosState (demo switch: slows and fails the index step)
   decisionsMd: "/api/decisions.md", // GET ?team_id= -> text/markdown: the decision log, each entry quoting the raw chunks it came from
   mcp: "/mcp", // MCP streamable HTTP: /mcp?team_id=<code>&who=<agent name>&side=<backend|frontend>
@@ -311,6 +312,35 @@ export type TasksParams = z.infer<typeof TasksParamsSchema>;
 /** Newest first. */
 export const TasksResponseSchema = z.object({ tasks: z.array(TaskDocSchema) });
 export type TasksResponse = z.infer<typeof TasksResponseSchema>;
+
+// ---------- Agents: who is who ----------
+/**
+ * A coding-agent session, as seen through the MCP endpoint. Identity comes from the MCP url:
+ * /mcp?team_id=hh&who=cam-opus-1&side=backend  ->  id "agent:cam-opus-1", works for "cam".
+ * Convention for `who`: <human>-<model>-<n>. Presence is held in memory: an agent appears on
+ * its first tool call and goes idle, then gone, when it stops calling.
+ */
+export const AgentStateSchema = z.enum(["active", "idle", "gone"]); // seen < 2 min · < 15 min · longer
+export type AgentState = z.infer<typeof AgentStateSchema>;
+
+export const AgentDocSchema = z.object({
+  team_id: TeamIdSchema,
+  id: WhoSchema, // "agent:cam-opus-1": the same string that appears as `who` / `owner` everywhere else
+  name: z.string(), // "cam-opus-1"
+  human: WhoSchema.optional(), // the person it works for, when the name starts with someone on the roster
+  side: SideSchema.optional(),
+  state: AgentStateSchema,
+  first_seen: IsoUtcSchema,
+  last_seen: IsoUtcSchema,
+  last_tool: z.string().optional(), // the last MCP tool it called, e.g. "task_claim"
+  calls: z.number(), // tool calls this session
+  claims: z.array(TaskDocSchema).default([]), // the open claims it holds right now
+});
+export type AgentDoc = z.infer<typeof AgentDocSchema>;
+
+/** Active first, then idle, then gone; most recently seen first within each. */
+export const AgentsResponseSchema = z.object({ agents: z.array(AgentDocSchema) });
+export type AgentsResponse = z.infer<typeof AgentsResponseSchema>;
 
 // ---------- Chaos (the demo's failure switch) ----------
 /**
