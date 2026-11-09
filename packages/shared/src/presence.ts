@@ -22,14 +22,31 @@ export const MAX_AGENTS_PER_TEAM = 200;
 const ACTIVE_MS = 2 * 60_000;
 const IDLE_MS = 15 * 60_000;
 
+export const MAX_TEAMS = 500;
+
+/** Drops the team whose most recent sighting is oldest, so arbitrary team ids cannot grow memory without bound. */
+function evictStalestTeam(teams: Map<string, Map<string, PresenceEntry>>) {
+  let stalest: string | undefined;
+  let stalestAt = "";
+  for (const [id, team] of teams) {
+    const latest = [...team.values()].reduce((m, e) => (e.last_seen > m ? e.last_seen : m), "");
+    if (stalest === undefined || latest < stalestAt) [stalest, stalestAt] = [id, latest];
+  }
+  if (stalest !== undefined) teams.delete(stalest);
+}
+
 export function createPresence(opts: { now?: () => Date } = {}): Presence {
   const now = opts.now ?? (() => new Date());
   const teams = new Map<string, Map<string, PresenceEntry>>();
   return {
     seen({ team_id, who, side, tool }) {
       const at = now().toISOString();
-      const team = teams.get(team_id) ?? new Map<string, PresenceEntry>();
-      teams.set(team_id, team);
+      let team = teams.get(team_id);
+      if (!team) {
+        if (teams.size >= MAX_TEAMS) evictStalestTeam(teams);
+        team = new Map<string, PresenceEntry>();
+        teams.set(team_id, team);
+      }
       const prev = team.get(who);
       const entry: PresenceEntry = prev ?? { team_id, who, first_seen: at, last_seen: at, calls: 0 };
       entry.last_seen = at;

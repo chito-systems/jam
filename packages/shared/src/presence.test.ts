@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseRoster } from "./assign";
-import { createPresence, MAX_AGENTS_PER_TEAM, toAgentDoc } from "./presence";
+import { createPresence, MAX_AGENTS_PER_TEAM, MAX_TEAMS, toAgentDoc } from "./presence";
 import type { TaskDoc } from "./types";
 
 const clock = (start = Date.parse("2026-11-09T18:00:00.000Z")) => {
@@ -38,6 +38,24 @@ describe("createPresence", () => {
     expect(list).toHaveLength(MAX_AGENTS_PER_TEAM);
     expect(list[0]?.who).toBe(`a-${MAX_AGENTS_PER_TEAM}`);
     expect(list.some((e) => e.who === "a-0")).toBe(false);
+  });
+});
+
+describe("createPresence team cap", () => {
+  it("evicts the team seen least recently when a new team would exceed the cap", () => {
+    const c = clock();
+    const p = createPresence({ now: c.now });
+    for (let i = 0; i < MAX_TEAMS; i++) {
+      p.seen({ team_id: `t${i}`, who: "a" });
+      c.tick(1000);
+    }
+    p.seen({ team_id: "t0", who: "a" }); // t0 is fresh again, so t1 is now the stalest
+    c.tick(1000);
+    p.seen({ team_id: "new", who: "a" });
+    expect(p.list("t1")).toEqual([]);
+    expect(p.list("t0")).toHaveLength(1);
+    expect(p.list("t2")).toHaveLength(1);
+    expect(p.list("new")).toHaveLength(1);
   });
 });
 
