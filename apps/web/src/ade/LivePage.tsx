@@ -1,5 +1,5 @@
-import type { CaptureStatus, ChaosState, ItemDoc, ItemVerdict, RawDoc, SearchHit, TaskDoc } from '@hh/shared'
-import { type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { AgentDoc, CaptureStatus, ChaosState, ItemDoc, ItemVerdict, RawDoc, SearchHit, TaskDoc } from '@hh/shared'
+import { type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
 import '@fontsource/bricolage-grotesque/800.css'
@@ -8,6 +8,7 @@ import type { RunState } from './data'
 import { armAudio, playChime, setSound, soundOn } from './chime'
 import { addNote, agentName, ago, clock, decisionLogUrl, formatMs, type Identity, isAgent, itemNewer, type Live, loadIdentity, newlyDone, pct, pendingCaptures, saveIdentity, searchBrain, setVerdict, threadFor, useLive } from './live'
 import { Mark, type MarkMode, ThemeCtx } from './Mark'
+import { agentMode, foldGone, groupAgents, ownerLabel, shortName } from './agents'
 import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, useTheme } from './parts'
 import { Guide, guideSeen, HelpIcon } from './Guide'
 import { type Outgoing, Talk } from './Talk'
@@ -35,6 +36,16 @@ const CAPTURE_LABEL: Record<CaptureStatus['state'], string> = {
 }
 
 type RightTab = 'brain' | 'files'
+
+/** Turns an owner like "agent:cam-opus-1" into "opus-1 · cam" once /api/agents knows it. */
+const NameCtx = createContext<(who: string) => string>(agentName)
+const AGENT_STATE: Record<AgentDoc['state'], string> = { active: 'active', idle: 'idle', gone: 'gone' }
+/** "just now", or "4m ago". */
+const seen = (iso: string, now: number) => {
+  const a = ago(iso, now)
+  return a === 'now' ? 'just now' : `${a} ago`
+}
+const NO_AGENTS_CMD = './scripts/jam-agent.sh cam-opus-1'
 
 export function LivePage() {
   const { theme, flip } = useTheme()
@@ -94,6 +105,8 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
   const [finished, setFinished] = useState('')
   const [outgoing, setOutgoing] = useState<Outgoing[]>([])
   const prevTasks = useRef<TaskDoc[] | null>(null)
+  const known = useMemo(() => new Map(live.agents.map((a) => [a.id, a])), [live.agents])
+  const owner = useCallback((who: string) => ownerLabel(who, known), [known])
 
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 30_000)
@@ -109,8 +122,8 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
     const t = prev && newlyDone(prev, live.tasks)[0]
     if (!t) return
     playChime('done')
-    setFinished(`${agentName(t.owner)} finished: ${t.title}`)
-  }, [live.status, live.tasks])
+    setFinished(`${owner(t.owner)} finished: ${t.title}`)
+  }, [live.status, live.tasks, owner])
   useEffect(() => {
     if (!finished) return
     const t = window.setTimeout(() => setFinished(''), 6000)
@@ -195,14 +208,16 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
     { label: 'Open the setup guide', run: () => setGuide(true) },
     { label: 'Change team or name', hint: `${id.team} · ${id.who}`, run: onSignOut },
     ...orders.map((t) => ({ id: t.id, label: t.title, hint: `work order · for ${orderFor(t)}`, agent: 'jam', run: () => select(t.id) })),
-    ...tasks.map((t) => ({ id: t.id, label: t.title, hint: `${agentName(t.owner)} · ${TASK_LABEL[t.status]}`, agent: t.owner, run: () => select(t.id) })),
+    ...tasks.map((t) => ({ id: t.id, label: t.title, hint: `${owner(t.owner)} · ${TASK_LABEL[t.status]}`, agent: t.owner, run: () => select(t.id) })),
   ]
 
-  const people = Object.entries(live.stats?.by_who ?? {}).sort((a, b) => b[1] - a[1])
-  const shown = active ? [active] : open
+  const crew = useMemo(() => groupAgents(live.stats?.by_who ?? {}, live.agents), [live.stats?.by_who, live.agents])
+  const agent = known.get(activeId)
+  const shown = agent ? agent.claims : active ? [active] : open
   const fileCount = shown.reduce((n, t) => n + t.paths.length, 0)
 
   return (
+    <NameCtx.Provider value={owner}>
     <div className="ade" data-side={side} style={{ '--w-left': `${widths.left}px`, '--w-right': `${widths.right}px` } as CSSProperties}>
       <header className="bar">
         <button type="button" className="icon only-narrow" aria-label="Tasks" onClick={() => setSide(side === 'left' ? 'none' : 'left')}>
@@ -275,7 +290,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
                 <span className="s-title">{t.title}</span>
                 <span className="s-time">{ago(t.updated_at, now)}</span>
                 <span className="s-meta">
-                  {TASK_LABEL[t.status]} · {agentName(t.owner)} · {t.side}
+                  {TASK_LABEL[t.status]} · {owner(t.owner)} · {t.side}
                 </span>
               </button>
             </li>
@@ -284,17 +299,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
         {live.status === 'ready' && !tasks.length && !orders.length && (
           <p className="pane-empty">No task is claimed yet. An agent claims one with the task_claim tool, and it appears here.</p>
         )}
-        <div className="sec">
-          <span>PEOPLE AND AGENTS</span>
-          <span>{people.length}</span>
-        </div>
-        {people.map(([who, n]) => (
-          <div key={who} className="hu">
-            {isAgent(who) ? <Mark agent={who} size={20} /> : <span className="av">{who.slice(0, 1).toUpperCase()}</span>}
-            {agentName(who)}
-            <span className="s">{n} in brain</span>
-          </div>
-        ))}
+        <Crew crew={crew} agents={live.agents} activeId={activeId} now={now} onSelect={select} />
         <span className="grow" />
         <div className="left-foot"><kbd>j</kbd> <kbd>k</kbd> move between tasks</div>
       </nav>
@@ -302,7 +307,15 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
 
       <main className="center">
         <div className="path">
-          {proposed ? (
+          {agent ? (
+            <>
+              <span className={`a-dot a-${agent.state}`} role="img" aria-label={AGENT_STATE[agent.state]} />
+              <span className="t-title">{shortName(agent)}</span>
+              {agent.human && <span>works for <b>{agent.human}</b></span>}
+              {agent.side && <span>side <b>{agent.side}</b></span>}
+              <span>seen <b>{ago(agent.last_seen, now)}</b></span>
+            </>
+          ) : proposed ? (
             <>
               <StatusGlyph state="needs_input" />
               <span className="t-title">{proposed.title}</span>
@@ -313,7 +326,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
             <>
               <StatusGlyph state={TASK_STATE[active.status]} />
               <span className="t-title">{active.title}</span>
-              <span>owner <b>{agentName(active.owner)}</b></span>
+              <span>owner <b>{owner(active.owner)}</b></span>
               <span>side <b>{active.side}</b></span>
               {active.pr && <span>PR <b>{active.pr}</b></span>}
               <span>claimed <b>{clock(active.created_at)}</b></span>
@@ -327,13 +340,15 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
             </>
           )}
         </div>
-        {!active && <OrderStrip orders={orders} now={now} onOpen={select} />}
-        {proposed ? (
+        {!active && !agent && <OrderStrip orders={orders} now={now} onOpen={select} />}
+        {agent ? (
+          <AgentCard agent={agent} now={now} onSelect={select} />
+        ) : proposed ? (
           <WorkOrder task={proposed} id={id} onPut={live.putTask} onDismissed={() => select(FEED)} />
         ) : (
           <Thread live={live} task={active} id={id} outgoing={outgoing} now={now} onSignOut={onSignOut} />
         )}
-        {!proposed && <NoteBox id={id} />}
+        {!proposed && !agent && <NoteBox id={id} />}
         <BottomPanel live={live} now={now} onSelect={select} />
       </main>
       <div className="divider d-right" onPointerDown={drag('right')} />
@@ -372,6 +387,137 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
       {side !== 'none' && <button type="button" className="scrim" aria-label="Close pane" onClick={() => setSide('none')} />}
       {palette && <Palette commands={commands} onClose={() => setPalette(false)} />}
       {guide && <Guide id={id} live={live} onSignOut={onSignOut} onClose={() => setGuide(false)} />}
+    </div>
+    </NameCtx.Provider>
+  )
+}
+
+// ---------- people and agents: who is who ----------
+
+type CrewProps = { crew: ReturnType<typeof groupAgents>; agents: AgentDoc[]; activeId: string; now: number; onSelect: (id: string) => void }
+
+function Crew({ crew, agents, activeId, now, onSelect }: CrewProps) {
+  const awake = agents.filter((a) => a.state === 'active').length
+  return (
+    <>
+      <div className="sec">
+        <span>PEOPLE AND AGENTS</span>
+        <span>{agents.length ? `${awake} active` : crew.people.length}</span>
+      </div>
+      <div className="crew">
+        {crew.people.map((p) => (
+          <div key={p.human}>
+            <div className="hu">
+              <span className="av">{p.human.slice(0, 1).toUpperCase()}</span>
+              {p.human}
+              {p.count !== undefined && <span className="s">{p.count} in brain</span>}
+            </div>
+            <AgentRows agents={p.agents} activeId={activeId} now={now} onSelect={onSelect} />
+          </div>
+        ))}
+        {crew.others.map(([who, n]) => (
+          <div key={who} className="hu">
+            <Mark agent={who} size={20} />
+            {agentName(who)}
+            <span className="s">{n} in brain</span>
+          </div>
+        ))}
+        {crew.unassigned.length > 0 && (
+          <div>
+            <div className="hu hu-quiet">unassigned</div>
+            <AgentRows agents={crew.unassigned} activeId={activeId} now={now} onSelect={onSelect} />
+          </div>
+        )}
+        {!agents.length && <p className="pane-empty">No agents connected. Start one with <code className="cmd-line">{NO_AGENTS_CMD}</code></p>}
+      </div>
+    </>
+  )
+}
+
+function AgentRows({ agents, activeId, now, onSelect }: { agents: AgentDoc[]; activeId: string; now: number; onSelect: (id: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const { rows, folded } = foldGone(agents, open)
+  if (!agents.length) return null
+  return (
+    <ul className="ags">
+      {rows.map((a) => (
+        <li key={a.id}>
+          <button
+            type="button"
+            className={a.state === 'gone' ? 'ag gone' : 'ag'}
+            aria-current={a.id === activeId}
+            title={`${a.id} · ${AGENT_STATE[a.state]} · seen ${ago(a.last_seen, now)}`}
+            onClick={() => onSelect(a.id)}
+          >
+            <Mark agent={a.id} size={18} mode={agentMode(a)} />
+            <span className="ag-name">{shortName(a)}</span>
+            <span className="ag-side">{a.side ?? ''}</span>
+            <span className={`a-dot a-${a.state}`} role="img" aria-label={AGENT_STATE[a.state]} />
+          </button>
+        </li>
+      ))}
+      {folded > 0 && (
+        <li>
+          <button type="button" className="ag-more" onClick={() => setOpen(true)}>{folded} gone</button>
+        </li>
+      )}
+      {open && agents.filter((a) => a.state === 'gone').length > 3 && (
+        <li>
+          <button type="button" className="ag-more" onClick={() => setOpen(false)}>hide gone</button>
+        </li>
+      )}
+    </ul>
+  )
+}
+
+/** The centre pane for a selected agent: who it is, what it last did, and what it is holding. */
+function AgentCard({ agent, now, onSelect }: { agent: AgentDoc; now: number; onSelect: (id: string) => void }) {
+  return (
+    <div className="transcript">
+      <div className="col">
+        <div className="agent-card">
+          <div className="agent-head">
+            <Mark agent={agent.id} size={40} mode={agentMode(agent)} />
+            <div>
+              <b>{shortName(agent)}</b>
+              <span className="dim">{agent.human ? `works for ${agent.human}` : 'works for nobody on the roster'}</span>
+            </div>
+          </div>
+          <dl>
+            <dt>id</dt>
+            <dd className="mono">{agent.id}</dd>
+            <dt>side</dt>
+            <dd>{agent.side ?? 'not set'}</dd>
+            <dt>state</dt>
+            <dd>
+              <span className={`a-dot a-${agent.state}`} aria-hidden="true" /> {AGENT_STATE[agent.state]} · last seen {seen(agent.last_seen, now)} · {clock(agent.last_seen)}
+            </dd>
+            <dt>last tool</dt>
+            <dd className="mono">{agent.last_tool ?? 'none yet'}</dd>
+            <dt>calls</dt>
+            <dd>{agent.calls}</dd>
+          </dl>
+        </div>
+        <div className="sec">
+          <span>HOLDING</span>
+          <span>{agent.claims.length ? `${agent.claims.length} ${agent.claims.length === 1 ? 'claim' : 'claims'}` : ''}</span>
+        </div>
+        {agent.claims.map((t) => (
+          <div key={t.id} className="ev call">
+            <button type="button" className="row" onClick={() => onSelect(t.id)}>
+              <span className="tool">task_claim</span>
+              <span className="t target">{t.title}</span>
+              <span className="ok">{t.paths.length} {t.paths.length === 1 ? 'path' : 'paths'}</span>
+            </button>
+            {t.paths.length > 0 && (
+              <div className="body">
+                <pre>{t.paths.join('\n')}</pre>
+              </div>
+            )}
+          </div>
+        ))}
+        {!agent.claims.length && <p className="note">Holding no claims. It edits nothing until it calls task_claim.</p>}
+      </div>
     </div>
   )
 }
@@ -451,7 +597,8 @@ function ChaosSwitch({ id, on, ready, ask, setAsk, onState }: ChaosProps) {
 // ---------- centre: what the brain holds about the task, or the whole feed ----------
 
 function Entry({ doc }: { doc: RawDoc }) {
-  const meta = `${agentName(doc.who)} · ${doc.type} · ${clock(doc.at)}`
+  const name = useContext(NameCtx)
+  const meta = `${name(doc.who)} · ${doc.type} · ${clock(doc.at)}`
   if (doc.source_ref?.startsWith('task:')) return <p className="note">{clock(doc.at)} · {doc.text}</p>
   if (isAgent(doc.who))
     return (
@@ -477,6 +624,7 @@ function Entry({ doc }: { doc: RawDoc }) {
 type ThreadProps = { live: Live; task: TaskDoc | undefined; id: Identity; outgoing: Outgoing[]; now: number; onSignOut: () => void }
 
 function Thread({ live, task, id, outgoing, now, onSignOut }: ThreadProps) {
+  const name = useContext(NameCtx)
   const box = useRef<HTMLDivElement>(null)
   // Follow new entries only while the reader is at the bottom; never yank someone reading back.
   const atBottom = useRef(true)
@@ -534,7 +682,7 @@ function Thread({ live, task, id, outgoing, now, onSignOut }: ThreadProps) {
             <button type="button" className="row" aria-expanded={openPaths} onClick={() => setOpenPaths(!openPaths)}>
               <span className="t">{openPaths ? '▾' : '▸'}</span>
               <span className="tool">task_claim</span>
-              <span className="t target">{agentName(task.owner)} is editing</span>
+              <span className="t target">{name(task.owner)} is editing</span>
               <span className="ok">{task.paths.length} {task.paths.length === 1 ? 'path' : 'paths'}</span>
             </button>
             {openPaths && (
@@ -628,6 +776,7 @@ function BottomPanel({ live, now, onSelect }: { live: Live; now: number; onSelec
   const [termOn, setTermOn] = useState(false)
   const [height, setHeight] = useState(loadPanelHeight)
   const claims = live.tasks.filter((t) => t.status === 'claimed')
+  const name = useContext(NameCtx)
   const open = (t: typeof tab) => {
     setTab(t)
     setShut(false)
@@ -673,7 +822,7 @@ function BottomPanel({ live, now, onSelect }: { live: Live; now: number; onSelec
                   {claims.map((t) => (
                     <tr key={t.id}>
                       <td className="t"><button type="button" className="text-btn" onClick={() => onSelect(t.id)}>{t.title}</button></td>
-                      <td><span className="who"><Mark agent={t.owner} size={14} />{agentName(t.owner)}</span></td>
+                      <td><span className="who"><Mark agent={t.owner} size={14} />{name(t.owner)}</span></td>
                       <td>{t.side}</td>
                       <td>{t.paths.length}</td>
                       <td>{ago(t.created_at, now)}</td>
@@ -716,10 +865,11 @@ function BottomPanel({ live, now, onSelect }: { live: Live; now: number; onSelec
 type ItemRowProps = { kind: string; who: string; source?: string; at: string; text: string; prov?: string; used?: boolean; rejected?: boolean; children?: ReactNode }
 
 function ItemRow({ kind, who, source, at, text, prov, used, rejected, children }: ItemRowProps) {
+  const name = useContext(NameCtx)
   return (
     <article className={['item', used && 'used', rejected && 'rejected'].filter(Boolean).join(' ')}>
       <div className="k">
-        <span className={kind === 'blocker' ? 'kind blk' : 'kind'}>{kind}</span>· {agentName(who)}
+        <span className={kind === 'blocker' ? 'kind blk' : 'kind'}>{kind}</span>· {name(who)}
         {source ? ` · ${source}` : ''} · {clock(at)}
       </div>
       <p>{text}</p>
@@ -774,6 +924,7 @@ const rawRow = (d: RawDoc, used?: boolean) => (
 
 function Brain({ live, id, task }: { live: Live; id: Identity; task: TaskDoc | undefined }) {
   const team = id.team
+  const name = useContext(NameCtx)
   const [q, setQ] = useState('')
   const [found, setFound] = useState<{ q: string; hits: SearchHit[]; mode: string; ms: number } | { q: string; error: string } | null>(null)
 
@@ -823,11 +974,11 @@ function Brain({ live, id, task }: { live: Live; id: Identity; task: TaskDoc | u
           {task && (
             <>
               <div className="sec">
-                <span>WRITTEN BY {agentName(task.owner).toUpperCase()}</span>
+                <span>WRITTEN BY {name(task.owner).toUpperCase()}</span>
                 <span>{written.length}</span>
               </div>
               {written.map((d) => rawRow(d, true))}
-              {!written.length && <p className="pane-empty">{agentName(task.owner)} has not added anything to the brain.</p>}
+              {!written.length && <p className="pane-empty">{name(task.owner)} has not added anything to the brain.</p>}
             </>
           )}
           <div className="sec">
@@ -852,13 +1003,14 @@ function Brain({ live, id, task }: { live: Live; id: Identity; task: TaskDoc | u
 }
 
 function Files({ tasks }: { tasks: TaskDoc[] }) {
+  const name = useContext(NameCtx)
   if (!tasks.length) return <p className="pane-empty">No files are claimed right now.</p>
   return (
     <>
       {tasks.map((t) => (
         <div key={t.id}>
           <div className="sec">
-            <span>{agentName(t.owner).toUpperCase()}</span>
+            <span>{name(t.owner).toUpperCase()}</span>
             <span>{TASK_LABEL[t.status].toLowerCase()}</span>
           </div>
           <ul className="files">
