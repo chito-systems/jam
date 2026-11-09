@@ -11,9 +11,11 @@ export type Block =
 
 export function parseMarkdown(src: string): Block[] {
   const out: Block[] = []
-  const lines = src.replace(/\r\n?/g, '\n').split('\n')
+  // Specs quote transcripts (untrusted): every line separator becomes \n before any regex sees it.
+  const lines = src.replace(/\r\n?|[\u2028\u2029]/g, '\n').split('\n')
   let i = 0
   while (i < lines.length) {
+    const start = i
     const line = lines[i] ?? ''
     if (!line.trim()) {
       i++
@@ -39,7 +41,7 @@ export function parseMarkdown(src: string): Block[] {
       out.push({ t: 'quote', text: body.join(' ').trim() })
       continue
     }
-    if (/^\s*[-*]\s+\[[ xX]\]/.test(line)) {
+    if (CHECK.test(line)) {
       const items: { done: boolean; text: string }[] = []
       for (let m = CHECK.exec(lines[i] ?? ''); m; m = CHECK.exec(lines[++i] ?? '')) items.push({ done: m[1] !== ' ', text: (m[2] ?? '').trim() })
       out.push({ t: 'checks', items })
@@ -53,6 +55,8 @@ export function parseMarkdown(src: string): Block[] {
     }
     const body: string[] = []
     while (i < lines.length && (lines[i] ?? '').trim() && !STARTS_BLOCK.test(lines[i] ?? '')) body.push((lines[i++] ?? '').trim())
+    // Guard: a line no branch could consume (a regex mismatch we did not foresee) becomes a paragraph, so the loop always advances.
+    if (i === start) body.push((lines[i++] ?? '').trim())
     out.push({ t: 'p', text: body.join(' ') })
   }
   return out

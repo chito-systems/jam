@@ -50,6 +50,33 @@ describe('parseMarkdown', () => {
     ])
   })
 
+  it('treats U+2028, U+2029 and lone \\r as line breaks instead of hanging', () => {
+    expect(parseMarkdown('# Goal\u2028do it')).toEqual([
+      { t: 'h', level: 1, text: 'Goal' },
+      { t: 'p', text: 'do it' },
+    ])
+    expect(parseMarkdown('- [ ] a\u2029b\r- [x] c')).toEqual([
+      { t: 'checks', items: [{ done: false, text: 'a' }] },
+      { t: 'p', text: 'b' },
+      { t: 'checks', items: [{ done: true, text: 'c' }] },
+    ])
+    expect(parseMarkdown('## \u2028\u2028> q')).toEqual([{ t: 'h', level: 2, text: '' }, { t: 'quote', text: 'q' }])
+  })
+
+  it('closes an unterminated quote or list at the end of input', () => {
+    expect(parseMarkdown('> "said it')).toEqual([{ t: 'quote', text: '"said it' }])
+    expect(parseMarkdown('- a\n- b')).toEqual([{ t: 'list', items: ['a', 'b'] }])
+    expect(parseMarkdown('- [ ] a\n- [ ]')).toEqual([{ t: 'checks', items: [{ done: false, text: 'a' }, { done: false, text: '' }] }])
+  })
+
+  it('parses 5,000 lines of mixed, hostile input quickly', () => {
+    const kinds = ['# h\u2028x', '> q\u2029', '- [ ] c', '- l', 'para', '', '```', '#\u2028', '-\u2028[ ]']
+    const big = Array.from({ length: 5000 }, (_, n) => kinds[n % kinds.length]).join('\n')
+    const t = performance.now()
+    expect(parseMarkdown(big).length).toBeGreaterThan(0)
+    expect(performance.now() - t).toBeLessThan(500)
+  })
+
   it('returns nothing for blank input', () => {
     expect(parseMarkdown('\n  \n')).toEqual([])
   })
