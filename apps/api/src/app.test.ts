@@ -39,6 +39,10 @@ function fakeDispatcher(store: ContextStore) {
     async status(id) {
       return statuses.get(id);
     },
+    async captures() {
+      return [...statuses.values()];
+    },
+    publish() {},
     subscribe() {
       return () => {};
     },

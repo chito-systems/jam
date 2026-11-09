@@ -58,6 +58,7 @@ function chunk(job: IngestJob, transcript: Transcript | undefined): Promise<RawD
       who: job.who,
       type: job.type,
       source_ref: job.source_ref,
+      side: job.side,
     };
     let docs: RawDoc[];
     if (transcript) {

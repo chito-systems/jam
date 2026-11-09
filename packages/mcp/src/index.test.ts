@@ -15,6 +15,10 @@ function fakeDispatcher(store: MemoryStore): Dispatcher {
     async status() {
       return undefined;
     },
+    async captures() {
+      return [];
+    },
+    publish() {},
     subscribe() {
       return () => {};
     },
