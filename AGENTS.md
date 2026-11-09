@@ -44,6 +44,9 @@ gh issue comment 2 --body "<Stream>: <what landed> in #<pr>. Next: <thing>. Bloc
 ## The Board (Issue #2, pinned)
 Post when you land something, when you're blocked for more than 10 minutes, or when you need another stream. Format: `<Stream>: <one line>. Next: <one line>. Blocked: <none|what>`. Tag humans with @. Humans read it every 30 minutes. Board posts are ingested into the brain.
 
+## Naming
+Everything a user or judge sees is **JAM**: UI, README, pitch, page titles. "Hack Harness" / `hh` is the internal name only (package scope `@hh/*`, the `hack-harness-env` Secret, the `hack-harness-context` MCP server). Don't rename internals today.
+
 ## Hard rules
 - No secrets in the repo. Env vars only; add new ones to `.env.example`. Kubernetes Secrets are created by hand in the cluster, never committed.
 - No fake data in demo paths. Seed data only behind `SEED=true`, labeled.

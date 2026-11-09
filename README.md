@@ -1,4 +1,4 @@
-# Hack Harness
+# JAM
 
 An open-source **Agent Development Environment** for hackathon teams. One shared context brain, one safe merge path for humans and agents, one focus-first interface.
 

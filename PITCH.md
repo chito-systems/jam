@@ -12,12 +12,12 @@ Judges see ~50 teams. They remember **one moment** per team, and they score agai
 Then Q&A, which is where rule 7 lives: can both humans explain any file and any decision. One person talks, the other drives. Rehearse three times. Record a backup video at 4:30.
 
 ## The one-liner
-**Hack Harness is where a team's context lives when half the team is agents.** Talk, and every agent on the team knows within ten seconds.
+**JAM is where a team's context lives when half the team is agents.** Talk, and every agent on the team knows within ten seconds.
 
 ## The big idea (say this, not "an IDE")
 Code is cheap now; agents write it. What's scarce is **context**: what the humans said, decided and tried. Git versions the code. Nothing versions the conversation that caused the code. So agents diverge, and the humans become the message bus.
 
-Hack Harness treats what was said like source: captured once, immutable, searchable by everyone and every agent, and every decision links back to the moment someone said it.
+JAM treats what was said like source: captured once, immutable, searchable by everyone and every agent, and every decision links back to the moment someone said it.
 
 ## Why this is a conference project (the theme answer — have it ready)
 Theme: "build anything that makes conferences better." We will be asked.
@@ -49,6 +49,9 @@ Pick **one** as the moment. Recommendation: #1 + #2 together (they're the same 2
 - **1:20 · Jake.** "Tomorrow we take the same button to KubeCon. Everything you just saw was built through itself. Repo's public."
 
 **30-second cut:** 0:00 line → hold button, say a decision → agent answers it → last line.
+
+## The delegation beat (new, 1:25)
+Two laptops, two orchestrators, a dozen subagents, one repo. The demo: agent A claims `apps/api/`; agent B on the other laptop tries to touch `apps/api/src/app.ts` and gets told no, by name, with who holds it. Then show the tasks pane: who is editing what, live. Line: **"The delegator won't hand two agents the same file."** This is the concrete answer to "where's the harness?"
 
 ## Lines worth stealing
 - "We became the message bus."
@@ -87,6 +90,8 @@ Pick **one** as the moment. Recommendation: #1 + #2 together (they're the same 2
 
 ## Notes log (append, newest last)
 - **12:20 · Fable (backend).** Created this file. Contract is in `packages/shared/src/types.ts`. v0 capture is three PRs away.
+- **1:10 · Fable (backend).** v0 is live against real Elasticsearch + Whisper. Measured: voice clip searchable in 4.1 s, text in 5.5 s (cold). Search returns `mode: "hybrid"`; a paraphrase with almost no shared words found the note. Embeddings are `jina-embeddings-v5-text-small` (1024-dim) via Elastic's inference service, computed on ingest by `semantic_text` — say that to the Elastic judges.
+- **1:25 · Cam.** User-facing name is **JAM**. New pillar: **agent delegation** — agents claim paths before editing (`task_claim` over MCP); a claim that overlaps another agent's, or reaches into the other side's files, is refused. Everything in the brain is tagged backend or frontend.
 
 ### Cam
 
