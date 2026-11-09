@@ -39,7 +39,7 @@ spec:
             - name: OTEL_SERVICE_NAME
               value: hack-harness-api
             - name: TEAM_NAME
-              value: "__TEAM__"
+              value: "jam"
           # Created by hand in the cluster, never committed (deploy/RADAR.md,
           # "Creating the app Secret"). Carries ELASTIC_URL, ELASTIC_API_KEY,
           # OPENAI_API_KEY, OTEL_EXPORTER_OTLP_ENDPOINT,

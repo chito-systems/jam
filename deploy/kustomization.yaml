@@ -4,7 +4,7 @@
 # placeholder SHA (never `latest`), so nothing runs until the first build.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: team-__TEAM__
+namespace: team-jam
 resources:
   - deployment.yaml
   - service.yaml

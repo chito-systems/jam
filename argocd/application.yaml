@@ -1,20 +1,21 @@
-# Create this once, and Argo CD deploys deploy/ on every push to main.
+# Create this once, and Argo CD deploys deploy/ from the `deploy` branch, which the
+# build-and-deploy workflow advances on every push to main (main + the image tag).
 # Ask your agent to apply it through Radar's MCP server (apply_resource), or
 # apply it from Radar Cloud. Your repo must be public so Argo CD can read it.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: app
-  namespace: team-__TEAM__
+  namespace: team-jam
 spec:
-  project: team-__TEAM__
+  project: team-jam
   source:
-    repoURL: https://github.com/OWNER/REPO.git
-    targetRevision: main
+    repoURL: https://github.com/chito-systems/jam.git
+    targetRevision: deploy
     path: deploy
   destination:
     server: https://kubernetes.default.svc
-    namespace: team-__TEAM__
+    namespace: team-jam
   syncPolicy:
     automated:
       prune: true

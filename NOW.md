@@ -13,7 +13,7 @@ Capture what the team says, make it searchable in under 10 seconds, give every a
 - Capture: mobile web page `/capture`, hold-to-record, Whisper API via OpenAI credits; local model later
 - Agents read via `packages/mcp` (context_search / context_recent / context_decisions / context_add)
 - Merge path: PRs → Gitar → CI → GitHub merge queue on `main`
-- Deploy: Radar cluster, Argo CD from `main`, GHCR images, namespace `team-___`
+- Deploy: Radar cluster, Argo CD from the `deploy` branch (main + image tag), GHCR images, namespace `team-jam`
 - Observability: OTel → Dash0, SLO "transcript searchable < 10 s p95", chaos flag on indexer
 - Contract: `packages/shared/src/types.ts`. API under `/api/*`, MCP at `/mcp`. `STORE=memory` runs the API with no credentials.
 - Sides: backend = Cam (streams A, C, D), frontend = Jake (stream B). One Fable orchestrator per side merges. See AGENTS.md.
@@ -31,12 +31,13 @@ Capture what the team says, make it searchable in under 10 seconds, give every a
 
 ## Links
 - Repo: https://github.com/chito-systems/jam
-- Live app: https://___.cnh.radarhq.io
+- Live app: https://jam.cnh.radarhq.io (cluster `jam`, namespace `team-jam`)
 - Elastic Cloud: ___
 - Dash0: ___
 - Radar Cloud: ___
 - Gitar: ___
 - Board: Issue #2
+- Team code in the app: `hh`
 
 ## Credits at kickoff
 - Cam Claude: ___   Jake Claude: ___   OpenAI codes: Cam ___ Jake ___

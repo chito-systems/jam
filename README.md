@@ -16,7 +16,7 @@ In an agent-era hackathon, a team's context fragments across people, agents, voi
 ## Architecture
 <!-- diagram + one paragraph at 4:00 -->
 
-- **Runs on:** Kubernetes (Radar's hackathon cluster, namespace `team-___`), deployed by Argo CD from `main`, images built by GitHub Actions to GHCR.
+- **Runs on:** Kubernetes (Radar's hackathon cluster, namespace `team-jam`), deployed by Argo CD from the `deploy` branch (main plus the image tag, written by the build workflow), images built by GitHub Actions to GHCR.
 - **Data layer:** Elasticsearch (Elastic Cloud). `context_raw` is the immutable truth; `context_items` is the librarian agent's structured layer. `semantic_text` fields, hybrid BM25 + kNN with RRF.
 - **Observability:** OpenTelemetry traces across upload → transcribe → index → librarian into Dash0; OpenLIT on LLM calls. SLO: transcript searchable within 10 s, p95.
 - **Delivery:** Gitar reviews every PR against `.gitar/review/instructions.md`; GitHub merge queue on `main`.
