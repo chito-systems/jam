@@ -21,7 +21,7 @@ import type {
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 const VENUE_TZ = 'America/Denver'
-const AGENTS_EVERY_MS = 10_000
+export const AGENTS_EVERY_MS = 10_000
 
 // ---------- pure helpers (tested in live.test.ts) ----------
 
@@ -304,6 +304,11 @@ export function loadOwnership(team: string): Promise<OwnershipMapResponse> {
 /** One person's own recent entries, so someone quiet lately still shows what they said. */
 export function loadRecent(team: string, who: string): Promise<RecentResponse> {
   return getJson<RecentResponse>('/api/recent', { team_id: team, who, limit: 20 })
+}
+
+/** The GitHub activity the API ingested: PR events and Gitar reviews, for the Ship view. */
+export function loadGithub(team: string, type: 'pr' | 'review'): Promise<RecentResponse> {
+  return getJson<RecentResponse>('/api/recent', { team_id: team, type, limit: 200 })
 }
 
 export async function addNote(id: Identity, text: string): Promise<IngestResponse> {

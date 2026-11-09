@@ -1,5 +1,30 @@
 # PITCH.md — the shared pitch file
 
+## The pitch (final, 4:10 PM)
+Cam's structure. This replaces the 90-second script below.
+
+**Open.** "The bottleneck at a hackathon is no longer technical skill or writing code. It's capturing the human context: the conversations between you, your teammate, the judges and other participants. That's the part agents can't get on their own."
+
+**Then show JAM by using it, with what we did today inside it:**
+1. **Quick capture.** Hold to talk in the desktop app. (Say: the phone app is coming.)
+2. **It lands in the Team feed,** searchable in a few seconds, in Elasticsearch.
+3. **jam sorts it.** A todo that names a person becomes a work order for that person, with the reason.
+4. **Accept it.** A local agent running in a terminal tab inside JAM picks it up, under its own name, holding its files.
+5. **The Ship view.** Today's pull requests, each reviewed by Gitar, merged, and deployed to the Radar cluster by itself.
+6. **The decision log.** Every decision, with the words it came from.
+
+**Close.** "Everything you just saw was built through itself today. The repo is public."
+
+**30-second cut:** the opening line → one spoken todo becomes an assigned work order → an agent tab picks it up → the closing line.
+
+**If it breaks:**
+- The cluster (https://jam.cnh.radarhq.io) and the laptop are the same app on the same data. Switch and keep talking.
+- Never apologize twice.
+
+Tracks we are entering: Elasticsearch, Gitar, Radar. Not Dash0.
+
+---
+
 Cam, Jake and the orchestrators keep this open all day. Add under your own heading; don't rewrite someone else's lines. SPEC.md is the product; this is how we say it out loud. Presentations 5:30–6:30 MT.
 
 ## What a hackathon pitch is (60-second primer)
@@ -33,12 +58,12 @@ Theme: "build anything that makes conferences better." We will be asked.
 | 2 | **Judge supplies the fact.** "Tell the phone something only you know." A fresh Claude Code session answers it through MCP. | Kills "is this seeded?" before anyone asks. | Zero beyond MCP | needs MCP |
 | 3 | **Receipts.** The README's decision log is generated from the brain; every decision links to the raw voice chunk where we said it. | Turns the AI-disclosure rule from a risk into the feature. "Here is every human decision, timestamped, and the PR it caused." | Librarian + one script | planned 2–3 pm |
 | 4 | **Find the right talk, without searching.** The brain knows what we fought with today; it picks tomorrow's KubeCon sessions for us. The query is our day. | It's the Elastic track's title, inverted. Lands the theme. | Schedule ingest + one query, 1 PR | **decide by 2:00** |
-| 5 | **The SLO is on the screen.** Every capture shows "searchable in 4.2 s". Flip chaos: the number goes red, Dash0 and Radar say why. | Observability as part of the product, which is the Dash0 criterion verbatim. | Already in the contract | needs deploy |
+| 5 | **The SLO is on the screen.** Every capture shows "searchable in 4.2 s". Flip chaos: the number goes red. | Observability as part of the product. (Dash0 track dropped at 3:10.) | Already in the contract | needs deploy |
 | 6 | **Open to the room.** QR on the last slide: any team picks a code and it works for them now. | Answers "who is this for?" with "everyone in this room". | Already multi-tenant | free if deployed |
 
 Pick **one** as the moment. Recommendation: #1 + #2 together (they're the same 20 seconds), with #3 as the closer.
 
-## 90-second script (v2, 3:10 PM — built around what works today)
+## 90-second script (v2, 3:10 PM) — superseded by "The pitch (final, 4:10 PM)" above
 Setup before walking up: JAM open in its own window on team `hh`, a second terminal with a fresh Claude Code session that has the `jam` MCP, phone or laptop mic ready. One person talks, the other drives.
 
 - **0:00 · Jake.** "Two people, a dozen coding agents, six hours. By noon nobody, human or agent, had the same picture of what we'd decided, and two agents were editing the same file. We became the message bus."
@@ -63,7 +88,7 @@ Two laptops, two orchestrators, a dozen subagents, one repo. The demo: agent A c
 ## Lines worth stealing
 - "We became the message bus."
 - "Git versions the code. Nothing versions the conversation that caused it."
-- "The harness isn't a runtime. It's one MCP tool, one rules file and one merge queue."
+- "The harness isn't a runtime. It's one MCP server, one rules file and a reviewer on every pull request."
 - "Raw is the truth. The agent's summary is allowed to be wrong."
 - "The feed is your own project." (focus pane)
 - Avoid: "agent-pilled", "we let the agents do it", "AI-powered". The room is tired of it.
@@ -73,11 +98,11 @@ Two laptops, two orchestrators, a dozen subagents, one repo. The demo: agent A c
 - **Garrison — "why Kubernetes at all?"** Honestly: it's two small Deployments. We're on it because Radar's cluster gave us GitOps and an AI SRE for free, and the ingest pipeline is the thing worth watching break.
 - **Sandoval — "who is this for?"** Today: us and the 50 teams in this room. Next: any team where agents outnumber people.
 - **Estes / Novack — "why Elasticsearch, not Postgres + pgvector?"** Hybrid BM25 + semantic in one query with RRF, embeddings computed on ingest by `semantic_text`, and immutability enforced by create-only writes. No embedding service to run.
-- **Barreiro (Cline) — "where's the harness? did you build an agent?"** No. We orchestrate Claude Code. The harness is the shared context tool, the ownership rules, and the merge queue. Show AGENTS.md.
+- **Barreiro (Cline) — "where's the harness? did you build an agent?"** No. We orchestrate Claude Code. The harness is the shared context tool, the ownership rules, and a Gitar review on every PR. Show AGENTS.md.
 - **Furst Morgado (Dash0) — "why no Dash0?"** The OpenTelemetry instrumentation is in the repo and tested against a local collector: one trace per capture, a time-to-searchable histogram. We didn't wire it to Dash0 because we wouldn't claim a track we hadn't used all day. The SLO number is in the product itself.
-- **Erell (Radar) — "what did the investigation tell you?"** ___ (fill with the real one)
+- **Erell (Radar) — "what did Radar tell you?"** Its Checks flagged a writable root filesystem and an auto-mounted service account token on our pod. Both fixed in #57; Argo CD rolled it out. We left "single replica" on purpose: capture status and the live feed are in process memory.
 - **Schrottner (Flagsmith) — "is chaos a feature flag?"** It's an env flag today, off by default and labeled in the UI when on. A real flag service is the right next step.
-- **Anyone — "did AI write all of this?"** Most of the code, under rules we wrote, every change through a reviewed PR. Ask us about any file. And the decision log shows which human decided what, and when.
+- **Anyone — "did AI write all of this?"** Claude Code wrote most of the code and did the detailed design inside decisions we made: the product, the tools, the architecture, every feature. Every change went through a reviewed PR. Ask us about any file. And the decision log shows which human decided what, and when.
 - **Anyone — "is recording people okay?"** Hold-to-talk is the consent. Nothing records unless someone is holding the button. Team code scopes everything. Context expires unless exported.
 
 ## What we say doesn't work (be first to say it)

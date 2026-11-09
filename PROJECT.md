@@ -2,6 +2,12 @@
 
 Read AGENTS.md first, then this, then NOW.md. This file holds the problem, the architecture decisions, and the build order. Decisions here are made; don't relitigate them in a PR.
 
+These decisions were made by Cam and Jake before code was written. The plan below is kept as written that morning; what changed during the day:
+- **Merge path** is PR → Gitar → CI → merge. GitHub's merge queue is not offered on a personally-owned repository.
+- **Board and PR ingestion** is a poller, not a webhook.
+- **Observability:** OpenTelemetry is implemented and tested against a local collector, but off; we did not enter the Dash0 track.
+- **Deployed** at https://jam.cnh.radarhq.io (Radar cluster `jam`, namespace `team-jam`). The Board is Issue #2.
+
 ## The narrow problem
 A hackathon team's context (what was said, decided, tried) fragments across people, agents, voice conversations and PRs within an hour. Agents then diverge because each one has a different slice of the truth.
 

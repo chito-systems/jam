@@ -1999,3 +1999,34 @@
     }
   }
 }
+
+/* Ship: today's pull requests in the right pane. */
+.ade .ship-head {
+  padding: 6px 12px;
+  font: 11px var(--mono);
+  color: var(--mute);
+  border-bottom: 1px solid var(--line);
+}
+.ade a.ship-row {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+.ade a.ship-row:hover {
+  background: var(--panel);
+}
+.ade .chip {
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+}
+.ade .chip.merged {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.ade .chip.bad {
+  border-color: var(--red);
+  color: var(--red);
+}

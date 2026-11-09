@@ -23,7 +23,9 @@ const SCREEN: Record<Ink, number> = { pink: 75, yellow: 0, blue: 15, indigo: 30,
 
 /** Marks the team has already met. Any other name gets a stable one from its hash. */
 const marks: Record<string, Identity> = {
-  jam: { ink: 'pink', shape: 'tri2' },
+  // The team feed (and the JAM wordmark) keep the pink tri; jam the librarian prints teal rings, so the two read apart.
+  feed: { ink: 'pink', shape: 'tri2' },
+  jam: { ink: 'teal', mis: 'yellow', shape: 'ring5' },
   gitar: { ink: 'indigo', mis: 'pink', shape: 'gitar' },
   librarian: { ink: 'indigo', shape: 'flower' },
 }
