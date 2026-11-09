@@ -5,17 +5,19 @@ import '@fontsource-variable/geist-mono'
 import '@fontsource/bricolage-grotesque/800.css'
 import './ade.css'
 import type { RunState } from './data'
-import { addNote, agentName, ago, clock, formatMs, type Identity, isAgent, type Live, loadIdentity, saveIdentity, searchBrain, sortTasks, threadFor, useLive } from './live'
+import { armAudio, playChime, setSound, soundOn } from './chime'
+import { addNote, agentName, ago, clock, formatMs, type Identity, isAgent, type Live, loadIdentity, newlyDone, saveIdentity, searchBrain, sortTasks, threadFor, useLive } from './live'
 import { Mark, type MarkMode, ThemeCtx } from './Mark'
-import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, StatusGlyph, ThemeIcon, useTheme } from './parts'
+import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, useTheme } from './parts'
+import { type Outgoing, Talk } from './Talk'
 
 // The ADE on real data. The API has tasks, brain entries, captures and stats; it has no
 // agent transcripts yet, so a "session" here is a task claim and what the brain holds about it.
 
 const FEED = 'feed'
-const TASK_STATE: Record<TaskDoc['status'], RunState> = { claimed: 'running', done: 'done', released: 'cancelled' }
-const TASK_LABEL: Record<TaskDoc['status'], string> = { claimed: 'Working', done: 'Done', released: 'Released' }
-const TASK_MARK: Record<TaskDoc['status'], MarkMode> = { claimed: 'working', done: 'still', released: 'idle' }
+const TASK_STATE: Record<TaskDoc['status'], RunState> = { proposed: 'needs_input', claimed: 'running', done: 'done', released: 'cancelled' }
+const TASK_LABEL: Record<TaskDoc['status'], string> = { proposed: 'Proposed', claimed: 'Working', done: 'Done', released: 'Released' }
+const TASK_MARK: Record<TaskDoc['status'], MarkMode> = { proposed: 'waiting', claimed: 'working', done: 'still', released: 'idle' }
 const CAPTURE_LABEL: Record<CaptureStatus['state'], string> = {
   queued: 'queued',
   transcribing: 'transcribing',
@@ -79,11 +81,38 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
   const [widths, setWidths] = useState({ left: 256, right: 340 })
   const [side, setSide] = useState<'none' | 'left' | 'right'>('none')
   const [now, setNow] = useState(Date.now)
+  const [sound, setSoundState] = useState(soundOn)
+  const [finished, setFinished] = useState('')
+  const [outgoing, setOutgoing] = useState<Outgoing[]>([])
+  const prevTasks = useRef<TaskDoc[] | null>(null)
 
   useEffect(() => {
     const t = window.setInterval(() => setNow(Date.now()), 30_000)
     return () => window.clearInterval(t)
   }, [])
+  useEffect(armAudio, [])
+
+  // Chime when the stream moves a task to done; the first load is the baseline.
+  useEffect(() => {
+    if (live.status !== 'ready') return
+    const prev = prevTasks.current
+    prevTasks.current = live.tasks
+    const t = prev && newlyDone(prev, live.tasks)[0]
+    if (!t) return
+    playChime('done')
+    setFinished(`${agentName(t.owner)} finished: ${t.title}`)
+  }, [live.status, live.tasks])
+  useEffect(() => {
+    if (!finished) return
+    const t = window.setTimeout(() => setFinished(''), 6000)
+    return () => window.clearTimeout(t)
+  }, [finished])
+
+  const toggleSound = () => {
+    setSound(!sound)
+    setSoundState(!sound)
+  }
+  const track = useCallback((o: Outgoing) => setOutgoing((list) => [o, ...list.filter((x) => x.key !== o.key)].slice(0, 20)), [])
 
   const tasks = useMemo(() => sortTasks(live.tasks), [live.tasks])
   const active = tasks.find((t) => t.id === activeId)
@@ -105,11 +134,6 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPalette((p) => !p)
-        return
-      }
-      if (e.altKey && e.code === 'Space') {
-        e.preventDefault()
-        window.location.assign('/c')
         return
       }
       if (palette) return
@@ -147,7 +171,8 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
   }
 
   const commands: Command[] = [
-    { label: 'Capture a voice note', hint: '⌥Space', run: () => window.location.assign('/c') },
+    { label: 'Open the capture page', hint: 'hold ⌥Space here', run: () => window.location.assign('/c') },
+    { label: sound ? 'Turn sound off' : 'Turn sound on', run: toggleSound },
     { label: 'Search the brain', hint: '/', run: () => show('brain') },
     { label: 'Show claimed files', run: () => show('files') },
     { label: 'Team feed', run: () => select(FEED) },
@@ -172,10 +197,10 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
           <kbd>⌘K</kbd>
         </button>
         <FreezeClock />
-        <a className="talk" href="/c">
-          <i />
-          Capture <kbd>⌥Space</kbd>
-        </a>
+        <Talk id={id} onOutgoing={track} />
+        <button type="button" className="icon" aria-label="Sound" aria-pressed={sound} title={sound ? 'Sound on' : 'Sound off'} onClick={toggleSound}>
+          <SoundIcon on={sound} />
+        </button>
         <button type="button" className="icon" aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} onClick={flip}>
           <ThemeIcon theme={theme} />
         </button>
@@ -249,7 +274,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
             </>
           )}
         </div>
-        <Thread live={live} task={active} id={id} />
+        <Thread live={live} task={active} id={id} outgoing={outgoing} />
         <NoteBox id={id} />
         <BottomPanel live={live} now={now} onSelect={select} />
       </main>
@@ -276,6 +301,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
         <span className="extra">{live.stats?.raw_total ?? 0} captures</span>
         <span className="extra">{live.stats?.items_total ?? 0} items</span>
         <span>{live.stats?.open_tasks ?? 0} open tasks</span>
+        <span className="sb-done" role="status">{finished}</span>
         <span className="extra">searchable p50 <b>{formatMs(live.stats?.slo.p50_ms)}</b></span>
         <span className="sp" />
         <button type="button" className="sb-btn" aria-label="Change team or name" title="Change team or name" onClick={onSignOut}>{id.who}</button>
@@ -315,12 +341,13 @@ function Entry({ doc }: { doc: RawDoc }) {
   )
 }
 
-function Thread({ live, task, id }: { live: Live; task: TaskDoc | undefined; id: Identity }) {
+function Thread({ live, task, id, outgoing }: { live: Live; task: TaskDoc | undefined; id: Identity; outgoing: Outgoing[] }) {
   const box = useRef<HTMLDivElement>(null)
   const docs = useMemo(() => (task ? threadFor(task, live.docs) : [...live.docs].reverse()), [task, live.docs])
   const pending = live.captures.filter((c) => c.state !== 'indexed')
+  const sending = outgoing.filter((o) => !live.captures.some((c) => c.capture_id === o.capture_id))
   const [openPaths, setOpenPaths] = useState(true)
-  const count = docs.length + pending.length
+  const count = docs.length + pending.length + sending.length
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when the selection or the number of entries changes
   useEffect(() => {
@@ -341,7 +368,7 @@ function Thread({ live, task, id }: { live: Live; task: TaskDoc | undefined; id:
     return (
       <div className="transcript empty">
         <p>The brain is empty for team {id.team}.</p>
-        <p className="dim">Hold to talk on the capture page, or write a note below. It shows up here the moment it is searchable.</p>
+        <p className="dim">Hold Talk, or write a note below. It shows up here the moment it is searchable.</p>
       </div>
     )
 
@@ -373,6 +400,12 @@ function Thread({ live, task, id }: { live: Live; task: TaskDoc | undefined; id:
             <p key={c.capture_id} className={c.state === 'failed' ? 'note bad' : 'note'} role="status">
               {agentName(c.who)} · {c.type} · {CAPTURE_LABEL[c.state]}
               {c.error ? `: ${c.error}` : '…'}
+            </p>
+          ))}
+        {!task &&
+          sending.map((o) => (
+            <p key={o.key} className={o.error ? 'note bad' : 'note'} role={o.error ? 'alert' : 'status'}>
+              {id.who} · voice · {o.error ? `not sent: ${o.error}` : o.capture_id ? 'queued…' : 'sending…'}
             </p>
           ))}
       </div>

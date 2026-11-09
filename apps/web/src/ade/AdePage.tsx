@@ -3,6 +3,7 @@ import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
 import '@fontsource/bricolage-grotesque/800.css'
 import './ade.css'
+import { armAudio, playChime } from './chime'
 import { board, type BrainEntry, brain, type Ev, type FileChange, people, queue, type RunState, type Session, seedSessions } from './data'
 import { Mark, type MarkMode, ThemeCtx } from './Mark'
 import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, STATE_LABEL, StatusGlyph, ThemeIcon, useTheme } from './parts'
@@ -92,6 +93,7 @@ export function AdePage() {
   const needsYou = sessions.filter((s) => s.state === 'needs_input').length
   const working = sessions.filter((s) => s.state === 'running').length
 
+  useEffect(armAudio, [])
   useEffect(() => {
     document.title = needsYou ? `(${needsYou}) JAM` : 'JAM'
   }, [needsYou])
@@ -154,6 +156,7 @@ export function AdePage() {
           },
           'done',
         )
+        playChime('done')
       })
     },
     [later, patch, push],
