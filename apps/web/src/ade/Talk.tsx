@@ -52,6 +52,8 @@ export function Talk({ id, onOutgoing }: { id: Identity; onOutgoing: (o: Outgoin
   const cur = useRef<Rec | null>(null)
   const bars = useRef<(HTMLElement | null)[]>([])
   const hintTimer = useRef(0)
+  // Each mic request gets a number, so a stale one (a tap, then a hold, during the permission prompt) is dropped.
+  const req = useRef(0)
 
   const hint = (text: string) => {
     setMsg(text)
@@ -69,7 +71,9 @@ export function Talk({ id, onOutgoing }: { id: Identity; onOutgoing: (o: Outgoin
     if (problem) return fail(problem)
     pressing.current = via
     setMsg('')
+    const mine = ++req.current
     const opened = (stream: MediaStream) => {
+      if (mine !== req.current || cur.current) return release(stream)
       if (!pressing.current) {
         release(stream)
         return hint('The mic is ready. Hold to talk.')
@@ -93,6 +97,7 @@ export function Talk({ id, onOutgoing }: { id: Identity; onOutgoing: (o: Outgoin
       }
     }
     const refused = (e: unknown) => {
+      if (mine !== req.current) return
       pressing.current = null
       console.error('opening the microphone failed', e)
       if (e instanceof DOMException && e.name === 'NotAllowedError') return fail('Microphone access is blocked. Allow it for this site in the browser, then hold again.')
