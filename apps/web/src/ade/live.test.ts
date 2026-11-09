@@ -1,6 +1,6 @@
 import type { CaptureStatus, ItemDoc, RawDoc, TaskDoc } from '@hh/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { agentName, ago, captainsOf, clock, decisionLogUrl, formatMs, grouped, isAgent, itemNewer, loadIdentity, type Member, member, memberLine, mergeNew, newlyDone, pct, pendingCaptures, roster, saveIdentity, sortTasks, taskNewer, threadFor, upsert } from './live'
+import { agentName, ago, captainsOf, clock, decisionLogUrl, formatMs, isAgent, itemNewer, loadIdentity, type Member, member, memberLine, mergeNew, mergeSaid, newlyDone, pct, pendingCaptures, roster, saveIdentity, sortTasks, taskNewer, threadFor, upsert } from './live'
 
 const task = (over: Partial<TaskDoc>): TaskDoc => ({
   team_id: 't1',
@@ -273,7 +273,7 @@ describe('people', () => {
   })
 
 
-  it('puts each agent under the person it works for, from /api/agents', () => {
+  it('gives each person the agents /api/agents says work for them', () => {
     const agent = (id: string, human: string | undefined, state: 'active' | 'idle' | 'gone') => ({
       team_id: 't1', id, name: id.slice(6), human, state, first_seen: '2026-11-09T19:00:00.000Z', last_seen: '2026-11-09T19:00:00.000Z', calls: 3, claims: [],
     })
@@ -287,12 +287,6 @@ describe('people', () => {
     expect(busy.working.map((t) => t.id)).toEqual(['a1'])
     expect(busy.holding).toEqual(['apps/api/x.ts'])
     expect(memberLine(list.find((m) => m.who === 'agent:stray-1') as Member)).toBe('idle')
-    expect(grouped(list).map((g) => [g.m.who, g.under])).toEqual([
-      ['jake', undefined],
-      ['cam', undefined],
-      ['agent:cam-opus-1', 'cam'],
-      ['agent:stray-1', undefined],
-    ])
   })
 
   it('keeps a person when their agent shares their name, and gives the agent no captaincy or work orders', () => {
@@ -304,6 +298,13 @@ describe('people', () => {
     expect(jake.assigned.map((t) => t.id)).toEqual(['p1'])
     expect(bot.captain).toBeUndefined()
     expect(bot.assigned).toEqual([])
-    expect(grouped(list).find((g) => g.m.who === 'agent:jake')?.under).toBe('jake')
+    expect(jake.agents.map((a) => a.id)).toEqual(['agent:jake'])
+  })
+
+  it('merges a person\'s own page into what the stream delivered, once each, newest first, without task notes', () => {
+    const a = doc({ id: 'a', who: 'cam', at: '2026-11-09T19:01:00.000Z' })
+    const b = doc({ id: 'b', who: 'cam', at: '2026-11-09T19:03:00.000Z' })
+    const note = doc({ id: 'n', who: 'cam', at: '2026-11-09T19:04:00.000Z', source_ref: 'task:k1' })
+    expect(mergeSaid([a], [b, a, note]).map((d) => d.id)).toEqual(['b', 'a'])
   })
 })

@@ -428,6 +428,91 @@
     font: 11px var(--mono);
     color: var(--mute);
   }
+  /* a person in the rail opens their view */
+  .hu-person {
+    width: calc(100% - 8px);
+    margin: 0 4px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    text-align: left;
+  }
+  .hu-person:hover,
+  .hu-person[aria-current="true"] {
+    background: var(--panel);
+  }
+  .hu-person[aria-current="true"] {
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .hu-name {
+    flex: none;
+  }
+  .hu-person .s {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .av.busy {
+    background: var(--ink);
+    color: var(--paper);
+  }
+
+  /* ---------- centre: one person ---------- */
+
+  .person {
+    gap: 4px;
+    padding-bottom: 12px;
+  }
+  .person .sec,
+  .person .pane-empty {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .person .sessions {
+    padding: 0;
+    overflow: visible;
+  }
+  .p-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 6px 8px 10px;
+  }
+  .p-head .av {
+    font-size: 16px;
+  }
+  .p-head h2 {
+    font: 500 20px var(--sans);
+    letter-spacing: -0.01em;
+  }
+  .p-role {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 2px 8px 6px;
+    font-size: 13px;
+    color: var(--mute);
+  }
+  .p-paths {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .p-paths code {
+    padding: 2px 7px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    font: 12px var(--mono);
+    color: var(--ink);
+  }
+  .p-paths.held code {
+    border-color: var(--ink);
+  }
+  .p-hint {
+    padding: 0 8px 4px;
+    font-size: 12.5px;
+    color: var(--mute);
+  }
   .ags {
     padding: 0 4px 4px 22px;
   }
