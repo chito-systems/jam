@@ -254,9 +254,15 @@ describe('people', () => {
     expect(member('gitar', tasks, []).side).toBeUndefined()
   })
 
+  it('counts a GitHub login as its person and leaves bots out', () => {
+    const list = roster({ 'chito-systems': 5, cam: 1, quakeob: 2, gitar: 9, fable: 3 }, [], [])
+    expect(list.map((m) => m.who).sort()).toEqual(['cam', 'jake'])
+    expect(list.find((m) => m.who === 'cam')?.inBrain).toBe(6)
+  })
+
   it('lists brain authors, claim owners and suggested owners, busiest first, without jam', () => {
     const list = roster({ gitar: 4, jake: 2 }, tasks, [])
-    expect(list.map((m) => m.who)).toEqual(['agent:opus-1', 'cam', 'jake', 'gitar'])
+    expect(list.map((m) => m.who)).toEqual(['agent:opus-1', 'cam', 'jake']) // gitar is a reviewer bot, not a teammate
     expect(memberLine(list[0] as Member)).toBe(`on ${tasks[3]?.title}`)
     expect(memberLine(list[2] as Member)).toBe('1 assigned')
     expect(memberLine(list[3] as Member)).toBe('4 in brain')
