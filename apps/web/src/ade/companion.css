@@ -302,6 +302,14 @@
     background: var(--paper);
     animation: c-rise 0.2s ease-out;
   }
+  .c-review .c-kind {
+    margin-bottom: 10px;
+  }
+  .c-audio {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+  }
   .c-sheet textarea {
     display: block;
     width: 100%;

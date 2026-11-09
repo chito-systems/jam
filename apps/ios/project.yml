@@ -22,7 +22,8 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: JAM
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: Hold to talk records what you say and adds it to your team's brain.
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: Talk records what you say so you can read it back and send it to your team's brain.
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: JAM turns your recording into text on this phone so you can read it before you send it.
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: JAM connects to the JAM server running on your team's laptop.
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
         INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleDefault

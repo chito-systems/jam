@@ -9,6 +9,8 @@ describe('voice clips', () => {
   })
   it('prefers webm opus, then webm, then mp4, else lets the browser choose', () => {
     expect(pickMime(() => true)).toBe('audio/webm;codecs=opus')
+    // The iPhone app transcribes on the phone; Apple's recognizer reads mp4, not webm.
+    expect(pickMime(() => true, true)).toBe('audio/mp4')
     expect(pickMime((m) => m === 'audio/mp4')).toBe('audio/mp4')
     expect(pickMime(() => false)).toBe('')
   })

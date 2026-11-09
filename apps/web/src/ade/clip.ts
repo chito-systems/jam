@@ -6,8 +6,9 @@ export const MIN_CLIP_MS = 500
 export const tooShort = (ms: number) => ms < MIN_CLIP_MS
 
 /** First container the browser can record, or '' to let it choose. */
-export function pickMime(supported: (mime: string) => boolean): string {
-  return ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find(supported) ?? ''
+export function pickMime(supported: (mime: string) => boolean, preferMp4 = false): string {
+  const order = preferMp4 ? ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'] : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+  return order.find(supported) ?? ''
 }
 
 /** "voice-2026-11-09T21-14-03-120Z.webm", named for when recording started. */
