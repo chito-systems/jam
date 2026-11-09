@@ -8,9 +8,12 @@ import {
   closeTask,
   type Dispatcher,
   type ItemDoc,
+  ownershipOf,
+  parseRoster,
   ItemKindSchema,
   ItemVerdictSchema,
   type RawDoc,
+  reportClash,
   type SearchHit,
   setItemVerdict,
   type Side,
@@ -293,6 +296,7 @@ function buildServer(deps: McpDeps, caller: Caller): McpServer {
         }
         const res = await claimTask(store, { team_id, who: me, side, title, paths });
         if (!res.ok) {
+          await reportClash(dispatcher, { team_id, who: me, side, conflict: res.conflict });
           const lines = res.conflict.conflicts.map(
             (t) => `- ${t.owner}: "${t.title}" holds ${t.paths.join(", ")} (task ${t.id})`,
           );
@@ -356,6 +360,7 @@ function buildServer(deps: McpDeps, caller: Caller): McpServer {
         if (!res.ok) {
           if ("notFound" in res) return toolError(`No task ${id} on team ${team_id}. Check the id with task_list.`);
           if ("error" in res) return toolError(`Refused: ${res.error}`);
+          await reportClash(dispatcher, { team_id, who: me, side: caller.side, conflict: res.conflict });
           const lines = res.conflict.conflicts.map(
             (t) => `- ${t.owner}: "${t.title}" holds ${t.paths.join(", ")} (task ${t.id})`,
           );
@@ -401,6 +406,30 @@ function buildServer(deps: McpDeps, caller: Caller): McpServer {
           `[task ${status}] ${task.title} — ${task.owner} freed ${task.paths.join(", ")}${task.pr ? ` (PR ${task.pr})` : ""}`,
         );
         return text(`Task ${task.id} ${status}. Freed ${task.paths.join(", ")}.`, { task });
+      }),
+  );
+
+  server.registerTool(
+    "who_owns",
+    {
+      description:
+        "Call before planning an edit to see which side owns a file, who its captain is, and whether another agent is working on it right now.",
+      inputSchema: {
+        path: z.string().min(1).describe("Repo-relative file or directory, e.g. 'apps/api/src/app.ts'"),
+      },
+    },
+    ({ path }) =>
+      run("who_owns", caller, async () => {
+        const own = await ownershipOf(store, { team_id, path, roster: parseRoster(process.env.JAM_ROSTER) });
+        const lines = [
+          own.side
+            ? `${own.path}: ${own.side} side, captain ${own.captain ?? "(none on the roster)"}`
+            : `${own.path}: shared ground, anyone may claim it`,
+          ...own.held_by.map((t) => `held by ${t.owner}: "${t.title}" (task ${t.id})`),
+          ...own.proposed.map((t) => `proposed: "${t.title}" (work order ${t.id})`),
+        ];
+        if (own.held_by.length === 0 && own.proposed.length === 0) lines.push("nobody is working on it right now");
+        return text(lines.join("\n"), { ...own });
       }),
   );
 

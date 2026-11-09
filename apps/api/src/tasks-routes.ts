@@ -9,6 +9,7 @@ import {
   type ContextStore,
   type Dispatcher,
   ROUTES,
+  reportClash,
   type StatsResponse,
   TaskAcceptRequestSchema,
   TaskClaimRequestSchema,
@@ -112,7 +113,11 @@ export function registerTaskRoutes(
     const parsed = parse(c, TaskClaimRequestSchema, json.body);
     if (parsed.res) return parsed.res;
     const result = await claimTask(store, parsed.data);
-    if (!result.ok) return c.json(result.conflict, 409);
+    if (!result.ok) {
+      const { team_id, who, side } = parsed.data;
+      await reportClash(dispatcher, { team_id, who, side, conflict: result.conflict });
+      return c.json(result.conflict, 409);
+    }
     const { task } = result;
     await announce(
       task,
@@ -130,7 +135,11 @@ export function registerTaskRoutes(
     const id = c.req.param("id");
     const result = await acceptTask(store, id, parsed.data);
     if (!result.ok) {
-      if ("conflict" in result) return c.json(result.conflict, 409);
+      if ("conflict" in result) {
+        const { team_id, who, side } = parsed.data;
+        await reportClash(dispatcher, { team_id, who, side, conflict: result.conflict });
+        return c.json(result.conflict, 409);
+      }
       if ("notFound" in result) return c.json(apiError("task not found"), 404);
       return c.json(apiError(result.error), 400);
     }
