@@ -92,6 +92,13 @@ export function parseKinds(input: string | undefined): ItemKind[] | undefined {
   return kinds;
 }
 
+/** " · confirmed by **jake**", or " · unconfirmed (librarian confidence 0.82)" when the librarian scored it. */
+function grade(item: ItemDoc): string {
+  if (item.verdict === "confirmed") return ` · confirmed by **${escapeInline(item.verified_by ?? "someone")}**`;
+  if (item.confidence === undefined) return "";
+  return ` · unconfirmed (librarian confidence ${item.confidence.toFixed(2)})`;
+}
+
 const oldestFirst = (a: ItemDoc, b: ItemDoc) => a.at.localeCompare(b.at);
 
 export function renderDecisionLog(input: {
@@ -114,13 +121,19 @@ export function renderDecisionLog(input: {
     "",
   ];
 
-  const decisions = [...(sections.find((s) => s.kind === "decision")?.items ?? [])].sort(oldestFirst);
+  const allDecisions = sections.find((s) => s.kind === "decision")?.items ?? [];
+  const decisions = allDecisions.filter((d) => d.verdict !== "rejected").sort(oldestFirst);
+  const rejected = allDecisions.length - decisions.length;
   if (decisions.length === 0) {
     out.push("No decisions captured yet. Talk it through near a mic and they will show up here, with receipts.", "");
   } else {
     const superseded = decisions.filter((d) => d.status === "superseded").length;
     const noun = decisions.length === 1 ? "decision" : "decisions";
-    out.push(`**${decisions.length} ${noun}** · ${superseded} superseded`, "");
+    const confirmed = decisions.filter((d) => d.verdict === "confirmed").length;
+    out.push(
+      `**${decisions.length} ${noun}** · ${confirmed} confirmed · ${superseded} superseded · ${rejected} rejected and hidden`,
+      "",
+    );
     if (decisions.length >= LIMIT) {
       out.push(`_Showing the newest ${LIMIT} decisions; older ones exist and are not listed._`, "");
     }
@@ -128,15 +141,17 @@ export function renderDecisionLog(input: {
       const head = `${when(d.at)} — ${escapeInline(d.text)}`;
       const by = `**${escapeInline(d.who)}**`;
       const tags = d.tags.length ? ` · tags: ${d.tags.map(code).join(" ")}` : "";
-      if (d.status === "superseded") out.push(`## ~~${head}~~`, `Superseded · decided by ${by}${tags}`);
-      else out.push(`## ${head}`, `Decided by ${by}${tags}`);
+      const graded = `${tags}${grade(d)}`;
+      if (d.status === "superseded") out.push(`## ~~${head}~~`, `Superseded · decided by ${by}${graded}`);
+      else out.push(`## ${head}`, `Decided by ${by}${graded}`);
       for (const q of quotes(d, raws, seen)) out.push("", q);
       out.push("");
     }
   }
 
-  for (const { kind, items } of sections) {
+  for (const { kind, items: all } of sections) {
     if (kind === "decision") continue;
+    const items = all.filter((i) => i.verdict !== "rejected");
     const more = items.length >= LIMIT ? `, newest ${LIMIT} shown` : "";
     out.push("---", "", `## ${SECTION_TITLES[kind]} (${items.length}${more})`, "");
     if (items.length === 0) out.push("None right now.", "");

@@ -8,8 +8,10 @@ import {
   type Dispatcher,
   type ItemDoc,
   ItemKindSchema,
+  ItemVerdictSchema,
   type RawDoc,
   type SearchHit,
+  setItemVerdict,
   type Side,
   SideSchema,
   SourceTypeSchema,
@@ -90,6 +92,9 @@ const fmtRaw = (d: RawDoc) =>
   `${d.at} ${d.who}${d.side ? ` (${d.side})` : ""} [${d.type}] ${d.id}\n  ${oneLine(d.text)}`;
 const fmtItem = (i: ItemDoc, indent = "") =>
   `${indent}${i.at} ${i.who} [${i.kind}${i.status === "open" ? "" : `, ${i.status}`}] ${i.id}\n${indent}  ${oneLine(i.text)}`;
+/** "[confirmed]" or "[unconfirmed 0.82]": how settled a decision is. */
+const grade = (i: ItemDoc) =>
+  i.verdict === "confirmed" ? "[confirmed]" : `[unconfirmed${i.confidence === undefined ? "" : ` ${i.confidence.toFixed(2)}`}]`;
 const fmtHit = (h: SearchHit) =>
   h.layer === "item"
     ? fmtItem(h.doc)
@@ -179,21 +184,41 @@ function buildServer(deps: McpDeps, caller: Caller): McpServer {
     "context_decisions",
     {
       description:
-        "Call this before starting a task, alongside context_recent: decisions the team has made today, newest first. Do not relitigate these; follow them. Superseded decisions are marked.",
+        "Call this before starting a task, alongside context_recent: decisions the team has made today, newest first. Do not relitigate these; follow them. Superseded decisions are marked. Each line is [confirmed] by a human or [unconfirmed <librarian confidence>]: unconfirmed items are the librarian's reading of the conversation, not settled fact.",
       inputSchema: {
         limit: z.number().int().min(1).max(200).optional().describe("Max decisions, default 50"),
       },
     },
     ({ limit }) =>
       run("context_decisions", caller, async () => {
-        const items = await store.items({ team_id, kind: "decision", limit: limit ?? 50 });
+        const all = await store.items({ team_id, kind: "decision", limit: limit ?? 50 });
+        const items = all.filter((i) => i.verdict !== "rejected");
         if (items.length === 0) {
           return text(
             'No extracted decisions yet (the librarian that pulls them out of conversations may not be running). Try context_search with query "decided" to find decisions in the raw captures.',
             { items: [] },
           );
         }
-        return text(items.map((i) => fmtItem(i)).join("\n\n"), { items });
+        return text(items.map((i) => `${grade(i)} ${fmtItem(i)}`).join("\n\n"), { items });
+      }),
+  );
+
+  server.registerTool(
+    "item_verdict",
+    {
+      description:
+        "Confirm or reject an item the librarian extracted (a decision, todo, ...). Only call when a human on your team told you to confirm or reject an item. Rejected items leave the decision log.",
+      inputSchema: {
+        id: z.string().min(1).describe("The item id, as shown by context_decisions or context_search"),
+        verdict: ItemVerdictSchema.describe("confirmed or rejected"),
+      },
+    },
+    ({ id, verdict }) =>
+      run("item_verdict", caller, async () => {
+        const item = await setItemVerdict(store, { team_id, id, who: me, verdict });
+        if (!item) return toolError(`No item ${id} on team ${team_id}. Check the id with context_decisions.`);
+        dispatcher.publish(team_id, { event: "item", data: item });
+        return text(`Item ${item.id} ${verdict} by ${me}: ${oneLine(item.text)}`, { item });
       }),
   );
 
