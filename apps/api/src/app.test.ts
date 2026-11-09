@@ -264,6 +264,8 @@ describe("api", () => {
       statuses.set(`c${i}`, { ...base, capture_id: `c${i}`, state: "indexed", ms_to_searchable: ms });
     });
     statuses.set("bad", { ...base, capture_id: "bad", state: "failed" });
+    // Repo activity from the GitHub poller is not a person waiting: it must not move the SLO.
+    statuses.set("gh", { ...base, capture_id: "gh", type: "pr", state: "indexed", ms_to_searchable: 60000 });
     const stats = (await (await app.request("/api/stats?team_id=t1")).json()) as StatsResponse;
     expect(stats.open_tasks).toBe(1);
     expect(stats.raw_total).toBe(2); // the capture + the task-claimed brain note
