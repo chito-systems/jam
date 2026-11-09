@@ -43,6 +43,21 @@ export function sideOf(path: string): Side | undefined {
   return undefined;
 }
 
+// Correct for a single API replica only; a multi-replica deployment needs a conditional write in the store.
+const teamTails = new Map<string, Promise<unknown>>();
+
+/** Runs fn after every earlier fn for the same team has settled, so read-check-write never interleaves. */
+export function withTeamLock<T>(team_id: string, fn: () => Promise<T>): Promise<T> {
+  const prev = teamTails.get(team_id) ?? Promise.resolve();
+  const result = prev.then(fn, fn);
+  const tail = result.catch(() => undefined); // a rejected fn must not poison the chain
+  teamTails.set(team_id, tail);
+  void tail.then(() => {
+    if (teamTails.get(team_id) === tail) teamTails.delete(team_id);
+  });
+  return result;
+}
+
 /** Deduped, normalized, empty entries dropped. */
 const cleanPaths = (paths: string[]) => [...new Set(paths.map(normalizePath).filter(Boolean))];
 
@@ -84,6 +99,10 @@ export async function claimTask(
   req: TaskClaimRequest,
   now: Date = new Date(),
 ): Promise<ClaimResult> {
+  return withTeamLock(req.team_id, () => claimUnlocked(store, req, now));
+}
+
+async function claimUnlocked(store: ContextStore, req: TaskClaimRequest, now: Date): Promise<ClaimResult> {
   const paths = cleanPaths(req.paths);
   const conflict = await checkClaim(store, req.team_id, req.side, paths);
   if (conflict) return { ok: false, conflict };
@@ -114,6 +133,10 @@ export async function acceptTask(
   req: TaskAcceptRequest,
   now: Date = new Date(),
 ): Promise<AcceptResult> {
+  return withTeamLock(req.team_id, () => acceptUnlocked(store, id, req, now));
+}
+
+async function acceptUnlocked(store: ContextStore, id: string, req: TaskAcceptRequest, now: Date): Promise<AcceptResult> {
   const all = await store.tasks({ team_id: req.team_id, limit: 200 });
   const current = all.find((t) => t.id === id);
   if (!current) return { ok: false, notFound: true };
@@ -139,16 +162,18 @@ export async function closeTask(
   req: TaskCloseRequest,
   now: Date = new Date(),
 ): Promise<TaskDoc | undefined> {
-  const all = await store.tasks({ team_id: req.team_id, limit: 200 });
-  const current = all.find((t) => t.id === id);
-  if (!current) return undefined;
-  const closed: TaskDoc = {
-    ...current,
-    status: req.status,
-    pr: req.pr ?? current.pr,
-    note: req.note ?? current.note,
-    updated_at: now.toISOString(),
-  };
-  await store.upsertTask(closed);
-  return closed;
+  return withTeamLock(req.team_id, async () => {
+    const all = await store.tasks({ team_id: req.team_id, limit: 200 });
+    const current = all.find((t) => t.id === id);
+    if (!current) return undefined;
+    const closed: TaskDoc = {
+      ...current,
+      status: req.status,
+      pr: req.pr ?? current.pr,
+      note: req.note ?? current.note,
+      updated_at: now.toISOString(),
+    };
+    await store.upsertTask(closed);
+    return closed;
+  });
 }

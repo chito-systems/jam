@@ -157,6 +157,34 @@ describe("acceptTask", () => {
     expect(!res.ok && "conflict" in res && res.conflict.reason).toBe("wrong_side");
   });
 
+  it("lets exactly one of two concurrent accepts win", async () => {
+    const store = new MemoryStore();
+    await store.upsertTask(proposed("wo1", ["apps/api/"]));
+    const results = await Promise.all([accept(store, "wo1", "cam"), accept(store, "wo1", "agent:opus-1")]);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.filter((r) => !r.ok)).toEqual([{ ok: false, error: "task is already claimed" }]);
+  });
+
+  it("grants exactly one of two concurrent overlapping claims", async () => {
+    const store = new MemoryStore();
+    const results = await Promise.all([
+      claim(store, "agent:opus-1", "backend", ["apps/api/"]),
+      claim(store, "agent:opus-2", "backend", ["apps/api/src/app.ts"]),
+    ]);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+  });
+
+  it("a failing call does not block the next one on the same team", async () => {
+    const store = new MemoryStore();
+    const tasks = store.tasks.bind(store);
+    store.tasks = async () => {
+      throw new Error("store down");
+    };
+    await expect(claim(store, "agent:opus-1", "backend", ["apps/api/"])).rejects.toThrow("store down");
+    store.tasks = tasks;
+    expect((await claim(store, "agent:opus-1", "backend", ["apps/api/"])).ok).toBe(true);
+  });
+
   it("errors on a non-proposed task, a work order with no paths, and an unknown id", async () => {
     const store = new MemoryStore();
     await store.upsertTask(proposed("done1", ["apps/api/"], { status: "done" }));
