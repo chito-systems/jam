@@ -2,8 +2,10 @@
 // Types only from @hh/shared: a value import would pull the Elasticsearch client into the bundle.
 import type {
   CaptureStatus,
+  ChaosState,
   IngestResponse,
   ItemDoc,
+  ItemVerdict,
   ItemsResponse,
   RawDoc,
   RecentResponse,
@@ -63,10 +65,44 @@ export function upsert<T extends { id: string }>(list: T[], doc: T, key: (d: T) 
   return next.sort((a, b) => key(b).localeCompare(key(a))).slice(0, max)
 }
 
-/** Baseline rows the stream has not already delivered, merged in newest first. */
-export function mergeNew<T extends { id: string }>(have: T[], loaded: T[], key: (d: T) => string, max = 300): T[] {
-  const seen = new Set(have.map((d) => d.id))
-  return [...have, ...loaded.filter((d) => !seen.has(d.id))].sort((a, b) => key(b).localeCompare(key(a))).slice(0, max)
+/**
+ * Merges a baseline load into what the stream already delivered, newest first by `key`.
+ * A row we already hold is kept unless `newer(loaded, held)` says the loaded copy is newer
+ * (catch-up after a dropped stream: a task that went claimed -> done while the laptop slept).
+ */
+export function mergeNew<T extends { id: string }>(
+  have: T[],
+  loaded: T[],
+  key: (d: T) => string,
+  newer: (a: T, b: T) => boolean = () => false,
+  max = 300,
+): T[] {
+  const fresh = new Map(loaded.map((d) => [d.id, d]))
+  const kept = have.map((d) => {
+    const l = fresh.get(d.id)
+    if (!l) return d
+    fresh.delete(d.id)
+    return newer(l, d) ? l : d
+  })
+  return [...kept, ...fresh.values()].sort((a, b) => key(b).localeCompare(key(a))).slice(0, max)
+}
+
+/** True when `a` is a later version of the same task than `b`. */
+export const taskNewer = (a: TaskDoc, b: TaskDoc) => a.updated_at > b.updated_at
+/** True when `a` carries a later verdict than `b` (items change only when someone grades them). */
+export const itemNewer = (a: ItemDoc, b: ItemDoc) => (a.verified_at ?? '') > (b.verified_at ?? '')
+
+/** The librarian's own 0..1 confidence as a whole percentage, e.g. 0.874 -> "87%". */
+export const pct = (n: number) => `${Math.round(Math.min(1, Math.max(0, n)) * 100)}%`
+
+/** How long a failed capture stays under the feed. The Captures tab keeps it. */
+export const FAILED_TTL_MS = 2 * 60_000
+
+/** Captures still on their way, plus failures from the last two minutes. */
+export function pendingCaptures(captures: CaptureStatus[], now: number): CaptureStatus[] {
+  return captures.filter(
+    (c) => c.state !== 'indexed' && (c.state !== 'failed' || now - new Date(c.received_at).getTime() < FAILED_TTL_MS),
+  )
 }
 
 /** Tasks that were in `prev` and not done, and are done in `next`. Unknown tasks never count. */
@@ -142,6 +178,23 @@ export async function addNote(id: Identity, text: string): Promise<IngestRespons
   return (await res.json()) as IngestResponse
 }
 
+/** POST /api/items/:id/verdict: a person confirms or rejects what the librarian extracted. */
+export async function setVerdict(id: Identity, itemId: string, verdict: ItemVerdict): Promise<ItemDoc> {
+  const res = await fetch(`/api/items/${encodeURIComponent(itemId)}/verdict`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ team_id: id.team, who: id.who, verdict }),
+  })
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null
+    throw new Error(body?.error ?? `verdict answered ${res.status}`)
+  }
+  return (await res.json()) as ItemDoc
+}
+
+/** The decision log as markdown, every entry quoting the words it came from. */
+export const decisionLogUrl = (team: string) => `/api/decisions.md?team_id=${encodeURIComponent(team)}`
+
 // ---------- the live store ----------
 
 export type Live = {
@@ -171,8 +224,13 @@ export function useLive(team: string | undefined): Live {
   const statsTimer = useRef(0)
   const statusRef = useRef(status)
   statusRef.current = status
+  // A person pressed "Try again": show the loading state. Automatic retries stay silent.
+  const manual = useRef(false)
 
-  const reload = useCallback(() => setAttempt((n) => n + 1), [])
+  const reload = useCallback(() => {
+    manual.current = true
+    setAttempt((n) => n + 1)
+  }, [])
 
   useEffect(() => {
     if (!team) return
@@ -199,10 +257,11 @@ export function useLive(team: string | undefined): Live {
       ])
         .then(([t, i, r, s]) => {
           if (dead) return
-          setTasks((list) => mergeNew(list, t.tasks, (x) => x.created_at))
-          setItems((list) => mergeNew(list, i.items, (x) => x.at))
+          setTasks((list) => mergeNew(list, t.tasks, (x) => x.created_at, taskNewer))
+          setItems((list) => mergeNew(list, i.items, (x) => x.at, itemNewer))
           setDocs((list) => mergeNew(list, r.docs, (x) => x.at))
           setStats(s)
+          setError(undefined)
           setStatus('ready')
         })
         .catch((e: unknown) => {
@@ -213,7 +272,9 @@ export function useLive(team: string | undefined): Live {
           setStatus('error')
         })
     }
-    loadBaseline(attempt > 0 && statusRef.current === 'ready')
+    // Retries after a closed stream are silent: an error card stays put and clears itself on success.
+    loadBaseline(attempt > 0 && !manual.current && statusRef.current !== 'loading')
+    manual.current = false
 
     // The stream has no snapshot and no replay: the GETs above are the baseline.
     const es = new EventSource(`/api/events?team_id=${encodeURIComponent(team)}`)
@@ -245,7 +306,11 @@ export function useLive(team: string | undefined): Live {
       setDocs((list) => upsert(list, d, (x) => x.at))
       statsSoon()
     })
-    on<ItemDoc>('item', (d) => setItems((list) => upsert(list, d, (x) => x.at)))
+    on<ItemDoc>('item', (d) => {
+      setItems((list) => upsert(list, d, (x) => x.at))
+      statsSoon()
+    })
+    on<ChaosState>('chaos', (c) => setStats((s) => (s ? { ...s, chaos: c.enabled } : s)))
     on<TaskDoc>('task', (d) => {
       setTasks((list) => upsert(list, d, (x) => x.created_at))
       statsSoon()
