@@ -76,12 +76,14 @@ export function formatMs(ms: number | undefined): string {
 
 // ---------- identity (same localStorage keys as the /c capture page) ----------
 
-export type Identity = { team: string; who: string }
+/** `persisted: false` means the browser refused storage: the identity lasts for this tab only. */
+export type Identity = { team: string; who: string; persisted: boolean }
 
 const read = (key: string) => {
   try {
     return localStorage.getItem(key) ?? ''
-  } catch {
+  } catch (e) {
+    console.warn(`reading ${key} from localStorage failed; asking for team and name again`, e)
     return ''
   }
 }
@@ -89,7 +91,7 @@ const read = (key: string) => {
 export function loadIdentity(): Identity | null {
   const team = read('hh.team')
   const who = read('hh.who')
-  return team && who ? { team, who } : null
+  return team && who ? { team, who, persisted: true } : null
 }
 
 export function saveIdentity(team: string, who: string): Identity {
@@ -97,10 +99,12 @@ export function saveIdentity(team: string, who: string): Identity {
   try {
     localStorage.setItem('hh.team', id.team)
     localStorage.setItem('hh.who', id.who)
-  } catch {
-    // Private mode: the identity still works for this page load.
+    return { ...id, persisted: true }
+  } catch (e) {
+    // Private mode or blocked storage: works for this tab, and /c will ask again.
+    console.warn('saving team and name to localStorage failed; the capture page will not share them', e)
+    return { ...id, persisted: false }
   }
-  return id
 }
 
 // ---------- http ----------
