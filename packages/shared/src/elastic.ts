@@ -84,6 +84,10 @@ export function itemsMapping(inferenceId?: string): estypes.MappingTypeMapping {
       raw_ids: keyword,
       status: keyword,
       at: { type: "date" },
+      confidence: { type: "float" },
+      verdict: keyword,
+      verified_by: keyword,
+      verified_at: { type: "date" },
       ...textPair(inferenceId),
     },
   };
@@ -353,6 +357,7 @@ export class ElasticStore implements ContextStore {
     const filter: Query[] = [{ term: { team_id: params.team_id } }];
     if (params.kind) filter.push({ term: { kind: params.kind } });
     if (params.status) filter.push({ term: { status: params.status } });
+    if (params.verdict) filter.push({ term: { verdict: params.verdict } });
     const res = await this.client.search({
       index: this.opts.itemsIndex,
       size: params.limit,
@@ -360,5 +365,15 @@ export class ElasticStore implements ContextStore {
       sort: [{ at: "desc" }],
     });
     return res.hits.hits.map((h) => ItemDocSchema.parse(h._source));
+  }
+
+  async itemById(team_id: string, id: string): Promise<ItemDoc | undefined> {
+    const res = await this.client.search({
+      index: this.opts.itemsIndex,
+      size: 1,
+      query: { bool: { filter: [{ term: { team_id } }, { term: { id } }] } },
+    });
+    const hit = res.hits.hits[0];
+    return hit ? ItemDocSchema.parse(hit._source) : undefined;
   }
 }

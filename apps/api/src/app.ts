@@ -25,6 +25,7 @@ import { matchedRoutes } from "hono/route";
 import { streamSSE } from "hono/streaming";
 import { CAPTURE_PAGE_HTML } from "./capture-page";
 import { registerDecisionRoutes } from "./decisions-routes";
+import { registerItemRoutes } from "./items-routes";
 import { registerTaskRoutes } from "./tasks-routes";
 
 export interface AppDeps {
@@ -213,6 +214,7 @@ export function createApp(deps: AppDeps): Hono<Env> {
 
   registerTaskRoutes(app, { store, dispatcher });
   registerDecisionRoutes(app, { store });
+  registerItemRoutes(app, { store, dispatcher });
 
   app.all(ROUTES.mcp, (c) => handleMcpRequest(c.req.raw, { store, dispatcher }));
 

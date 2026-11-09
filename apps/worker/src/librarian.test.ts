@@ -1,4 +1,4 @@
-import { type CaptureStatus, type FeedEvent, type ItemDoc, MemoryStore, type RawDoc } from "@hh/shared";
+import { type CaptureStatus, type FeedEvent, type ItemDoc, MemoryStore, type RawDoc, setItemVerdict } from "@hh/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInlineDispatcher } from "./dispatcher";
 import { createLibrarianFromEnv, type Librarian, type ModelItem, mapItems, OpenAILibrarian } from "./librarian";
@@ -33,6 +33,7 @@ const m = (over: Partial<ModelItem>): ModelItem => ({
   raw_ids: ["c1:1"],
   tags: ["Search"],
   status: "open",
+  confidence: 0.9,
   ...over,
 });
 
@@ -65,6 +66,46 @@ describe("mapItems", () => {
     expect(items[0]).toEqual({ ...old, status: "superseded" });
     expect(items[1]?.id).not.toBe("old-1");
   });
+
+  it("carries confidence and drops new items below 0.5", () => {
+    const items = mapItems([m({ confidence: 0.82 }), m({ text: "A guess.", confidence: 0.4 })], input);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.confidence).toBe(0.82);
+  });
+
+  it("drops a new item that repeats an existing or earlier one, and ignores unchanged existing ids", () => {
+    const items = mapItems(
+      [
+        m({ text: "the team will use  POSTGRES" }),
+        m({ existing_id: "old-1", status: "open" }),
+        m({}),
+        m({ text: "The team will use Elasticsearch!" }),
+      ],
+      input,
+    );
+    expect(items.map((i) => i.text)).toEqual(["The team will use Elasticsearch."]);
+  });
+
+  it("compares non-ASCII text by its letters, not as empty strings", () => {
+    const recent = [{ ...old, text: "Команда использует Postgres." }];
+    const items = mapItems(
+      [m({ text: "Мы выбрали Elasticsearch." }), m({ text: "café au lait" }), m({ text: "ＣＯＭＡＮＤＡ" })],
+      { ...input, recent: [...recent, { ...old, id: "o2", text: "cafe au lait" }, { ...old, id: "o3", text: "comanda" }] },
+    );
+    // Different Cyrillic sentence and an accented variant survive; full-width is the same word after NFKC.
+    expect(items.map((i) => i.text)).toEqual(["Мы выбрали Elasticsearch.", "café au lait"]);
+    const dupe = mapItems([m({ text: "команда использует POSTGRES" })], { ...input, recent });
+    expect(dupe).toEqual([]);
+  });
+
+  it("never overwrites a human verdict when superseding or closing an existing item", () => {
+    const verified = { ...old, verdict: "confirmed" as const, verified_by: "jake", verified_at: old.at, confidence: 0.95 };
+    const [item] = mapItems([m({ existing_id: "old-1", status: "superseded", confidence: 0.3 })], {
+      ...input,
+      recent: [verified],
+    });
+    expect(item).toEqual({ ...verified, status: "superseded" });
+  });
 });
 
 describe("OpenAILibrarian", () => {
@@ -79,6 +120,16 @@ describe("OpenAILibrarian", () => {
     expect(sent.model).toBe("test-model");
     expect(sent.response_format.type).toBe("json_schema");
     expect(sent.messages[1].content).toContain("c1:0");
+    expect(sent.response_format.json_schema.schema.properties.items.items.required).toContain("confidence");
+    expect(sent.messages[0].content).toMatch(/Duplicates are worse than gaps/);
+    expect(sent.messages[0].content).toMatch(/status update that merely mentions a past decision/);
+    expect(items[0]?.confidence).toBe(0.9);
+  });
+
+  it("rejects model items without a numeric confidence", async () => {
+    const { confidence: _drop, ...noConf } = m({ raw_ids: ["c1:0"] });
+    const lib = new OpenAILibrarian({ apiKey: KEY, fetchImpl: fakeFetch(200, JSON.stringify({ items: [noConf] })).impl });
+    await expect(lib.extract(input)).rejects.toThrow(/malformed item 0/);
   });
 
   it("throws a clear error on malformed model output", async () => {
@@ -153,6 +204,28 @@ describe("dispatcher + librarian", () => {
     await vi.waitFor(() => expect(events.some((e) => e.event === "item")).toBe(true));
     expect(calls[0]?.stateAtCall).toBe("indexed");
     expect(await store.items({ team_id: "t1", limit: 10 })).toHaveLength(1);
+  });
+
+  it("keeps a verdict a human set while the model was thinking, and shows the model 50 recent items", async () => {
+    let seen = 0;
+    const { store, d, events } = setup(async ({ recent }) => {
+      seen = recent.length;
+      const stale = recent.find((i) => i.id === "old-1");
+      if (!stale) throw new Error("old-1 not in recent");
+      // The human clicks "confirm" mid-call; the model then returns its stale snapshot.
+      await setItemVerdict(store, { team_id: "t1", id: "old-1", who: "jake", verdict: "confirmed" });
+      return [{ ...stale, status: "superseded" }];
+    });
+    await store.indexItems([
+      { ...old, at: "2026-11-09T20:00:00.000Z" },
+      ...Array.from({ length: 60 }, (_, n) => ({ ...old, id: `filler-${n}`, at: "2026-11-09T17:00:00.000Z" })),
+    ]);
+    await d.dispatch(job());
+    await vi.waitFor(() => expect(events.some((e) => e.event === "item")).toBe(true));
+    expect(seen).toBe(50);
+    const stored = await store.itemById("t1", "old-1");
+    expect(stored).toMatchObject({ status: "superseded", verdict: "confirmed", verified_by: "jake" });
+    expect(events.find((e) => e.event === "item")?.data).toEqual(stored);
   });
 
   it("a librarian failure leaves the capture indexed and logs once", async () => {

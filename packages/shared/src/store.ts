@@ -4,6 +4,7 @@
 import type {
   ItemDoc,
   ItemsParams,
+  ItemVerdict,
   RawDoc,
   RecentParams,
   SearchHit,
@@ -36,6 +37,8 @@ export interface ContextStore {
   rawByIds(team_id: string, ids: string[]): Promise<RawDoc[]>;
   /** Newest first. */
   items(params: ItemsParams): Promise<ItemDoc[]>;
+  /** One item by id within one team, or undefined. */
+  itemById(team_id: string, id: string): Promise<ItemDoc | undefined>;
   /** Create or replace a task claim by id. Tasks are mutable; raw docs are not. */
   upsertTask(task: TaskDoc): Promise<void>;
   /** Newest first. */
@@ -45,7 +48,29 @@ export interface ContextStore {
   ping(): Promise<boolean>;
 }
 
-const byNewest = (a: { at: string }, b: { at: string }) => b.at.localeCompare(a.at);
+/**
+ * A person's verdict on one item: sets verdict/verified_by/verified_at and upserts it.
+ * Idempotent; a different verdict overwrites. Undefined when the team has no such item.
+ * Shared by the HTTP route and the MCP tool so both do exactly the same update.
+ */
+export async function setItemVerdict(
+  store: ContextStore,
+  req: { team_id: string; id: string; who: string; verdict: ItemVerdict },
+  now: () => Date = () => new Date(),
+): Promise<ItemDoc | undefined> {
+  const existing = await store.itemById(req.team_id, req.id);
+  if (!existing) return undefined;
+  const item: ItemDoc = {
+    ...existing,
+    verdict: req.verdict,
+    verified_by: req.who,
+    verified_at: now().toISOString(),
+  };
+  await store.indexItems([item]);
+  return item;
+}
+
+const byNewest =(a: { at: string }, b: { at: string }) => b.at.localeCompare(a.at);
 
 export class MemoryStore implements ContextStore {
   private raw = new Map<string, RawDoc>();
@@ -128,10 +153,16 @@ export class MemoryStore implements ContextStore {
         (i) =>
           i.team_id === params.team_id &&
           (!params.kind || i.kind === params.kind) &&
-          (!params.status || i.status === params.status),
+          (!params.status || i.status === params.status) &&
+          (!params.verdict || i.verdict === params.verdict),
       )
       .sort(byNewest)
       .slice(0, params.limit);
+  }
+
+  async itemById(team_id: string, id: string): Promise<ItemDoc | undefined> {
+    const item = this.itemDocs.get(id);
+    return item && item.team_id === team_id ? item : undefined;
   }
 
   async upsertTask(task: TaskDoc): Promise<void> {
