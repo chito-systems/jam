@@ -36,22 +36,3 @@ describe('just in', () => {
     expect(justIn([doc('a', 'task:1'), doc('b'), doc('c')], 5).map((d) => d.id)).toEqual(['b', 'c'])
   })
 })
-
-describe('talk burst', () => {
-  it('inks quickly as the ring arrives and lifts slower, nothing outside it', async () => {
-    const { bump } = await import('./Burst')
-    expect(bump(-0.1)).toBe(0)
-    expect(bump(0.28)).toBeCloseTo(1)
-    expect(bump(0.14)).toBeCloseTo(0.5)
-    expect(bump(0.64)).toBeCloseTo(0.5)
-    expect(bump(1)).toBe(0)
-  })
-  it('lays one screen over the viewport, computed once', async () => {
-    const { screenDots } = await import('./Burst')
-    const d = screenDots(390, 844, 75, 14, 14)
-    expect(d.length % 2).toBe(0)
-    // About one dot per pitch² of a slightly padded viewport.
-    expect(d.length / 2).toBeGreaterThan(1500)
-    expect(d.length / 2).toBeLessThan(2400)
-  })
-})

@@ -3,7 +3,7 @@
 // (work orders, the librarian's guesses), and say things into the brain from anywhere.
 // Reading transcripts, files and the terminal stays on the laptop.
 import type { ItemDoc, ItemVerdict, TaskDoc } from '@hh/shared'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './companion.css'
 import { armAudio, playChime } from './chime'
 import { Guide, guideSeen, HelpIcon } from './Guide'
@@ -12,7 +12,6 @@ import { Mark } from './Mark'
 import { justIn, needsYou } from './needs'
 import { acceptOrder, dismissOrder, orderFor } from './orders'
 import { FreezeClock } from './parts'
-import { useBurst } from './Burst'
 import { Talk } from './Talk'
 
 const KIND_LABEL: Partial<Record<ItemDoc['kind'], string>> = { decision: 'Decision', todo: 'Todo', blocker: 'Blocker', question: 'Question' }
@@ -23,15 +22,6 @@ export function Companion({ id, live, onSignOut }: { id: Identity; live: Live; o
   const [handled, setHandled] = useState<Set<string>>(() => new Set())
   const [toast, setToast] = useState('')
   const [writing, setWriting] = useState(false)
-  const burst = useBurst()
-  const { fire } = burst
-  const press = useCallback(
-    (b: HTMLElement) => {
-      const r = b.getBoundingClientRect()
-      fire(r.left + r.width / 2, r.top + r.height / 2)
-    },
-    [fire],
-  )
   const prev = useRef<TaskDoc[] | null>(null)
 
   useEffect(() => {
@@ -127,11 +117,10 @@ export function Companion({ id, live, onSignOut }: { id: Identity; live: Live; o
           <PenIcon />
         </button>
         <div className="c-talk">
-          <Talk id={id} onOutgoing={() => {}} toggle onPress={press} />
+          <Talk id={id} onOutgoing={() => {}} toggle />
         </div>
       </footer>
 
-      {burst.view}
       {writing && <NoteSheet id={id} onClose={() => setWriting(false)} />}
       {guide && <Guide id={id} live={live} onSignOut={onSignOut} onClose={() => setGuide(false)} />}
     </div>
