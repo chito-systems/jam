@@ -68,7 +68,10 @@ export function createInlineDispatcher(deps: DispatcherDeps): Dispatcher {
   /** Fire and forget, serialized: a burst of captures queues instead of fanning out. */
   const enqueueLibrarian = (job: IngestJob, docs: RawDoc[]) => {
     const lib = deps.librarian;
-    if (!lib || docs.length === 0 || job.source_ref?.startsWith("task:")) return;
+    // The decision log is for what people said. Delegator bookkeeping, PR text and
+    // AI review comments stay searchable as raw context but are not mined for decisions.
+    const machineMade = job.source_ref?.startsWith("task:") || job.type === "pr" || job.type === "review";
+    if (!lib || docs.length === 0 || machineMade) return;
     librarianChain = librarianChain.then(() => librarian(job, docs, lib));
   };
 
