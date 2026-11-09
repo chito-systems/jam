@@ -1,0 +1,62 @@
+/* Terminal tab and the draggable bottom panel. Kept apart from ade.css on purpose. */
+
+.ade .panel {
+  position: relative;
+}
+.ade .panel:not(.shut) {
+  height: var(--panel-h, 184px);
+}
+.ade .panel-grip {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  z-index: 2;
+  cursor: row-resize;
+  touch-action: none;
+}
+.ade .panel-grip:hover,
+.ade .panel-grip:active {
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+.ade .term {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--paper);
+}
+.ade .term[hidden] {
+  display: none;
+}
+.ade .term-screen {
+  height: 100%;
+  padding: 6px 0 0 12px;
+}
+.ade .term-screen .xterm-viewport {
+  background: transparent;
+}
+.ade .term-line,
+.ade .term-note {
+  position: absolute;
+  inset: 0;
+  padding: 12px;
+  background: var(--paper);
+  color: var(--mute);
+}
+.ade .term-note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  overflow: auto;
+}
+.ade .term-note p {
+  max-width: 62ch;
+}
+.ade .term-note code {
+  padding: 4px 8px;
+  color: var(--ink);
+  user-select: all;
+}
