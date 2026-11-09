@@ -2,7 +2,7 @@
 // Two indices: raw (immutable truth, create-only) and items (the librarian's layer, upsert).
 // Search is one hybrid request: RRF over BM25 on `text` and semantic on `text_semantic`.
 import type { estypes } from "@elastic/elasticsearch";
-import type { ContextStore } from "./store";
+import type { ContextStore, StoreCounts } from "./store";
 import { withSpan } from "./telemetry";
 import {
   type ItemDoc,
@@ -14,6 +14,8 @@ import {
   type SearchHit,
   type SearchParams,
   type SearchResponse,
+  type TaskDoc,
+  type TasksParams,
 } from "./types";
 
 /** The slice of the @elastic/elasticsearch Client we use. Tests pass a fake. */
@@ -142,6 +144,19 @@ export class ElasticStore implements ContextStore {
         if (esErrorType(err) !== "resource_already_exists_exception") throw err;
       }
     }
+  }
+
+  // STUBS — the delegation ElasticStore PR replaces these three.
+  async upsertTask(_task: TaskDoc): Promise<void> {
+    throw new Error("ElasticStore.upsertTask not implemented yet");
+  }
+
+  async tasks(_params: TasksParams): Promise<TaskDoc[]> {
+    throw new Error("ElasticStore.tasks not implemented yet");
+  }
+
+  async counts(_team_id: string): Promise<StoreCounts> {
+    throw new Error("ElasticStore.counts not implemented yet");
   }
 
   async ping(): Promise<boolean> {

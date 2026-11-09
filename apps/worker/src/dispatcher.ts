@@ -95,6 +95,14 @@ export function createInlineDispatcher(deps: PipelineDeps): Dispatcher {
       return statuses.get(capture_id);
     },
 
+    async captures(team_id) {
+      return [...statuses.values()].filter((s) => s.team_id === team_id).reverse();
+    },
+
+    publish(team_id, event) {
+      emit(team_id, event);
+    },
+
     subscribe(team_id, listener) {
       let set = listeners.get(team_id);
       if (!set) {
