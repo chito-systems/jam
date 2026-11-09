@@ -78,7 +78,7 @@ struct JamWebView: UIViewRepresentable {
             parent.attempt = 0
         }
 
-        /// Tailscale on iOS often needs a few seconds to come back after the app opens, so a
+        /// The network (or a VPN like Tailscale) can need a few seconds after the app opens, so a
         /// failed load retries quietly (about 20 s) before the app says it can't reach the server.
         private func fail(_ error: Error) {
             let e = error as NSError
