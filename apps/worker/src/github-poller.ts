@@ -7,6 +7,8 @@ type FetchImpl = typeof fetch;
 const API = "https://api.github.com";
 const BACKOFF_MS = 5 * 60_000;
 const TYPES: SourceType[] = ["board", "pr", "review"];
+const SEED_PAGE = 200;
+const SEED_MAX_PAGES = 20;
 
 export interface GithubPollerOptions {
   repo: string;
@@ -124,10 +126,17 @@ export function createGithubPoller(opts: GithubPollerOptions): GithubPoller {
   let running = false;
   let timer: ReturnType<typeof setInterval> | undefined;
 
+  /** Pages back through raw docs (newest first) until it passes the backfill start, so a restart never replays. */
   const seed = async () => {
     for (const type of TYPES) {
-      const docs = await opts.store.recent({ team_id: opts.team_id, type, limit: 200 });
-      for (const d of docs) seen.add(d.capture_id);
+      let before: string | undefined;
+      for (let page = 0; page < SEED_MAX_PAGES; page++) {
+        const docs = await opts.store.recent({ team_id: opts.team_id, type, limit: SEED_PAGE, before });
+        for (const d of docs) seen.add(d.capture_id);
+        const oldest = docs.at(-1)?.at;
+        if (!oldest || oldest < backfillFrom) break;
+        before = oldest;
+      }
     }
     seeded = true;
   };

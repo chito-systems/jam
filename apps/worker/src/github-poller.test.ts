@@ -148,6 +148,22 @@ describe("github poller", () => {
     expect(jobs.map((j) => j.capture_id)).toEqual(["gh-comment-2"]);
   });
 
+  it("seeds from more than one page of the store", async () => {
+    const store = new MemoryStore();
+    const at = (i: number) => new Date(Date.parse("2026-11-09T01:00:00.000Z") + i * 1000).toISOString();
+    await store.indexRaw(
+      Array.from({ length: 250 }, (_, i) => ({
+        team_id: "hh", id: `gh-comment-${i}:0`, capture_id: `gh-comment-${i}`, type: "pr" as const, who: "cam", at: at(i), seq: 0, text: "x",
+      })),
+    );
+    const spy = vi.spyOn(store, "recent");
+    // Comment 0 is the oldest doc: only reachable on the second page.
+    const { poller, jobs } = setup({ comments: { status: 200, body: [comment(0, 7, "cam", "old"), comment(250, 7, "cam", "new")] }, pulls: { status: 200, body: [] } }, store);
+    await poller.tick();
+    expect(jobs.map((j) => j.capture_id)).toEqual(["gh-comment-250"]);
+    expect(spy.mock.calls.filter(([p]) => p.type === "pr").map(([p]) => p.before)).toEqual([undefined, at(50), at(0)]);
+  });
+
   it("sends If-None-Match with the last ETag and treats 304 as nothing new", async () => {
     const routes = {
       comments: { status: 200, body: [] as unknown[], etag: 'W/"c1"' },
