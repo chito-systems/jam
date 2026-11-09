@@ -24,6 +24,7 @@ import { cors } from "hono/cors";
 import { matchedRoutes } from "hono/route";
 import { streamSSE } from "hono/streaming";
 import { CAPTURE_PAGE_HTML } from "./capture-page";
+import { registerTaskRoutes } from "./tasks-routes";
 
 export interface AppDeps {
   store: ContextStore;
@@ -60,6 +61,10 @@ function parse<T>(c: Context<Env>, schema: Schema<T>, input: unknown) {
 }
 
 const isMediaMime = (mime: string) => mime.startsWith("audio/") || mime.startsWith("video/");
+
+/** Audio iff the mime says so, or the mime is unknown and the client explicitly said voice. */
+export const isAudioUpload = (mime: string, type: string) =>
+  isMediaMime(mime) || ((mime === "" || mime === "application/octet-stream") && type === "voice");
 
 export function createApp(deps: AppDeps): Hono<Env> {
   const { store, dispatcher } = deps;
@@ -131,14 +136,17 @@ export function createApp(deps: AppDeps): Hono<Env> {
         }
         const body = parsed.data;
         const base = { ...body, capture_id, received_at, at: body.at ?? received_at };
-        const mime = file.type || "application/octet-stream";
-        if (body.type === "voice" || isMediaMime(mime)) {
+        const mime = file.type;
+        if (isAudioUpload(mime, body.type)) {
+          const audioMime = mime || "application/octet-stream";
           const data = new Uint8Array(await file.arrayBuffer());
-          job = { ...base, audio: { data, mime, filename: file.name || undefined } };
+          job = { ...base, audio: { data, mime: audioMime, filename: file.name || undefined } };
         } else {
           const text = await file.text();
           if (!text.trim()) return c.json(apiError("uploaded text file is empty"), 400);
-          job = { ...base, text, source_ref: body.source_ref ?? file.name };
+          // A text file is never voice (`voice` is the schema default for uploads).
+          const type = body.type === "voice" ? "file" : body.type;
+          job = { ...base, type, text, source_ref: body.source_ref ?? file.name };
         }
       } else {
         return c.json(apiError("content-type must be application/json or multipart/form-data"), 415);
@@ -202,11 +210,13 @@ export function createApp(deps: AppDeps): Hono<Env> {
     });
   });
 
+  registerTaskRoutes(app, { store, dispatcher });
+
   app.all(ROUTES.mcp, (c) => handleMcpRequest(c.req.raw, { store, dispatcher }));
 
   app.get("/c", (c) => c.html(CAPTURE_PAGE_HTML));
 
-  app.get(ROUTES.healthz, (c) => c.json({ ok: true }));
+  app.get(ROUTES.healthz, (c) => c.json({ ok: true, version: process.env.APP_VERSION ?? "dev" }));
 
   app.get(ROUTES.readyz, async (c) => {
     const ok = await store.ping().catch((err: unknown) => {
