@@ -337,7 +337,7 @@ export function AdePage() {
           <button type="button" className="icon only-narrow" aria-label="Sessions" onClick={() => setSide(side === 'left' ? 'none' : 'left')}>
             <MenuIcon />
           </button>
-          <Mark agent="jam" size={22} />
+          <Mark agent="feed" size={22} />
           <span className="wm">JAM</span>
           <span className="crumb">cnh-jam / <b>main</b></span>
           <button type="button" className="cmd" onClick={() => setPalette(true)}>

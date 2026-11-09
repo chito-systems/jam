@@ -59,7 +59,7 @@ export function Companion({ id, live, onSignOut }: { id: Identity; live: Live; o
   return (
     <div className="ade companion">
       <header className="c-top">
-        <Mark agent="jam" size={22} />
+        <Mark agent="feed" size={22} />
         <span className="wm">JAM</span>
         <span className="c-team">{id.team}</span>
         {live.stats?.chaos && <span className="chaos-tag">CHAOS</span>}

@@ -12,19 +12,38 @@ type State = 'connecting' | 'open' | 'missing' | 'closed' | 'broken'
 const BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`
 const COMMAND = 'pnpm --filter @hh/web bridge'
 
+// ANSI colours in the marks' print inks (Mark.tsx), darkened on paper and lifted at night.
+const ANSI = {
+  light: { red: '#bd2f1a', green: '#00804a', yellow: '#9a6b00', blue: '#0067a5', magenta: '#c42b86', cyan: '#00737a', bRed: '#f2462e', bGreen: '#00a95c', bYellow: '#b88400', bBlue: '#0078bf', bMagenta: '#ff48b0', bCyan: '#00838a' },
+  dark: { red: '#ff6a52', green: '#2fd487', yellow: '#ffe94a', blue: '#3aa5ee', magenta: '#ff62bd', cyan: '#2fc0c8', bRed: '#ff8a75', bGreen: '#5ee3a3', bYellow: '#fff07a', bBlue: '#6dbdf5', bMagenta: '#ff8ccf', bCyan: '#5fd5db' },
+}
+
 function palette(el: Element, dark: boolean): ITheme {
   const css = getComputedStyle(el)
   const v = (name: string) => css.getPropertyValue(name).trim()
+  const a = ANSI[dark ? 'dark' : 'light']
   return {
     background: v('--paper'),
     foreground: v('--ink'),
     cursor: v('--ink'),
     cursorAccent: v('--paper'),
-    selectionBackground: v('--line'),
+    selectionBackground: dark ? '#3b3a35' : '#e6e0cf',
+    selectionInactiveBackground: v('--line'),
     black: dark ? v('--line') : v('--ink'),
     brightBlack: v('--mute'),
-    red: v('--red'),
+    red: a.red,
+    green: a.green,
+    yellow: a.yellow,
+    blue: a.blue,
+    magenta: a.magenta,
+    cyan: a.cyan,
     white: dark ? v('--ink') : v('--mute'),
+    brightRed: a.bRed,
+    brightGreen: a.bGreen,
+    brightYellow: a.bYellow,
+    brightBlue: a.bBlue,
+    brightMagenta: a.bMagenta,
+    brightCyan: a.bCyan,
     brightWhite: v('--ink'),
   }
 }
@@ -125,9 +144,18 @@ export function Terminal({ visible, run }: { visible: boolean; run?: string }) {
     return () => cancelAnimationFrame(id)
   }, [ready, theme])
 
+  // A hidden terminal has no size: re-fit when its tab is shown (the ResizeObserver covers window resizes).
   useEffect(() => {
-    if (visible && state === 'open') term.current?.x.focus()
-  }, [visible, state])
+    const t = term.current
+    if (!visible || !ready || !t) return
+    const id = requestAnimationFrame(() => {
+      if (!host.current?.offsetWidth) return
+      t.fit.fit()
+      if (ws.current?.readyState === WebSocket.OPEN) ws.current.send(encodeResize(t.x.cols, t.x.rows))
+    })
+    if (state === 'open') t.x.focus()
+    return () => cancelAnimationFrame(id)
+  }, [visible, ready, state])
 
   const retry = () => setAttempt((a) => a + 1)
   return (
