@@ -1,5 +1,6 @@
 // ElasticStore: the production ContextStore. Elasticsearch is the product's core data layer.
-// Two indices: raw (immutable truth, create-only) and items (the librarian's layer, upsert).
+// Three indices: raw (immutable truth, create-only), items (the librarian's layer, upsert)
+// and tasks (delegation claims, upsert).
 // Search is one hybrid request: RRF over BM25 on `text` and semantic on `text_semantic`.
 import type { estypes } from "@elastic/elasticsearch";
 import type { ContextStore, StoreCounts } from "./store";
@@ -15,20 +16,27 @@ import {
   type SearchParams,
   type SearchResponse,
   type TaskDoc,
+  TaskDocSchema,
   type TasksParams,
 } from "./types";
 
 /** The slice of the @elastic/elasticsearch Client we use. Tests pass a fake. */
 export interface ElasticClientLike {
-  indices: { create(params: estypes.IndicesCreateRequest): Promise<unknown> };
+  indices: {
+    create(params: estypes.IndicesCreateRequest): Promise<unknown>;
+    putMapping(params: estypes.IndicesPutMappingRequest): Promise<unknown>;
+  };
   bulk(params: estypes.BulkRequest): Promise<estypes.BulkResponse>;
+  index(params: estypes.IndexRequest): Promise<unknown>;
   search(params: estypes.SearchRequest): Promise<estypes.SearchResponse<unknown>>;
+  count(params: estypes.CountRequest): Promise<estypes.CountResponse>;
   ping(): Promise<boolean>;
 }
 
 export interface ElasticStoreOptions {
   rawIndex: string;
   itemsIndex: string;
+  tasksIndex: string;
   /** Inference endpoint for semantic_text. Unset = Elasticsearch's default endpoint. */
   inferenceId?: string;
 }
@@ -54,6 +62,7 @@ export function rawMapping(inferenceId?: string): estypes.MappingTypeMapping {
       capture_id: keyword,
       type: keyword,
       who: keyword,
+      side: keyword,
       source_ref: keyword,
       at: { type: "date" },
       seq: { type: "integer" },
@@ -80,12 +89,41 @@ export function itemsMapping(inferenceId?: string): estypes.MappingTypeMapping {
   };
 }
 
-/** Shared filter for search. `type` only exists on raw docs, so filtering by it excludes items. */
-export function buildFilters(p: Pick<SearchParams, "team_id" | "who" | "since" | "type">): Query[] {
+export function tasksMapping(): estypes.MappingTypeMapping {
+  return {
+    dynamic: "strict",
+    properties: {
+      team_id: keyword,
+      id: keyword,
+      side: keyword,
+      owner: keyword,
+      paths: keyword,
+      status: keyword,
+      pr: keyword,
+      title: { type: "text" },
+      note: { type: "text" },
+      created_at: { type: "date" },
+      updated_at: { type: "date" },
+    },
+  };
+}
+
+/** Properties safe to re-send to an existing index: everything except semantic_text (its live definition
+ * carries model_settings we don't want to fight). Adding fields to a mapping is idempotent. */
+export function additiveProperties(m: estypes.MappingTypeMapping): Record<string, estypes.MappingProperty> {
+  return Object.fromEntries(Object.entries(m.properties ?? {}).filter(([, p]) => p.type !== "semantic_text"));
+}
+
+/**
+ * Shared filter for search. `type` and `side` only exist on raw docs, so filtering by either
+ * excludes items.
+ */
+export function buildFilters(p: Pick<SearchParams, "team_id" | "who" | "since" | "type" | "side">): Query[] {
   const filters: Query[] = [{ term: { team_id: p.team_id } }];
   if (p.who) filters.push({ term: { who: p.who } });
   if (p.since) filters.push({ range: { at: { gte: p.since } } });
   if (p.type) filters.push({ term: { type: p.type } });
+  if (p.side) filters.push({ term: { side: p.side } });
   return filters;
 }
 
@@ -133,30 +171,69 @@ export class ElasticStore implements ContextStore {
   ) {}
 
   async ensureReady(): Promise<void> {
-    const { rawIndex, itemsIndex, inferenceId } = this.opts;
+    const { rawIndex, itemsIndex, tasksIndex, inferenceId } = this.opts;
     for (const [index, mappings] of [
       [rawIndex, rawMapping(inferenceId)],
       [itemsIndex, itemsMapping(inferenceId)],
+      [tasksIndex, tasksMapping()],
     ] as const) {
       try {
         await this.client.indices.create({ index, mappings });
       } catch (err) {
         if (esErrorType(err) !== "resource_already_exists_exception") throw err;
+        // Existing index: bring it up to date with fields added since it was created (e.g. raw.side).
+        await this.client.indices.putMapping({ index, properties: additiveProperties(mappings) });
       }
     }
   }
 
-  // STUBS — the delegation ElasticStore PR replaces these three.
-  async upsertTask(_task: TaskDoc): Promise<void> {
-    throw new Error("ElasticStore.upsertTask not implemented yet");
+  /** Waits for refresh: the very next claim must see this one (it is the overlap guard). */
+  async upsertTask(task: TaskDoc): Promise<void> {
+    const index = this.opts.tasksIndex;
+    await withSpan("elastic.upsert_task", { "es.index": index, "task.id": task.id }, async () => {
+      await this.client.index({ index, id: task.id, document: task, refresh: "wait_for" });
+    });
   }
 
-  async tasks(_params: TasksParams): Promise<TaskDoc[]> {
-    throw new Error("ElasticStore.tasks not implemented yet");
+  async tasks(params: TasksParams): Promise<TaskDoc[]> {
+    const filter: Query[] = [{ term: { team_id: params.team_id } }];
+    if (params.status) filter.push({ term: { status: params.status } });
+    if (params.side) filter.push({ term: { side: params.side } });
+    const res = await this.client.search({
+      index: this.opts.tasksIndex,
+      size: params.limit,
+      query: { bool: { filter } },
+      sort: [{ created_at: "desc" }],
+    });
+    return res.hits.hits.map((h) => TaskDocSchema.parse(h._source));
   }
 
-  async counts(_team_id: string): Promise<StoreCounts> {
-    throw new Error("ElasticStore.counts not implemented yet");
+  async counts(team_id: string): Promise<StoreCounts> {
+    const query: Query = { bool: { filter: [{ term: { team_id } }] } };
+    const terms = (field: string) => ({ terms: { field, size: 50 } });
+    const [raw, items] = await Promise.all([
+      this.client.search({
+        index: this.opts.rawIndex,
+        size: 0,
+        track_total_hits: true,
+        query,
+        aggs: { by_who: terms("who"), by_type: terms("type"), by_side: terms("side") },
+      }),
+      this.client.count({ index: this.opts.itemsIndex, query }),
+    ]);
+    const total = raw.hits.total;
+    const bucketsOf = (name: string): Record<string, number> => {
+      const agg = raw.aggregations?.[name] as estypes.AggregationsStringTermsAggregate | undefined;
+      const buckets = Array.isArray(agg?.buckets) ? agg.buckets : [];
+      return Object.fromEntries(buckets.map((b) => [String(b.key), b.doc_count]));
+    };
+    return {
+      raw_total: typeof total === "number" ? total : (total?.value ?? 0),
+      items_total: items.count,
+      by_who: bucketsOf("by_who"),
+      by_type: bucketsOf("by_type"),
+      by_side: bucketsOf("by_side"),
+    };
   }
 
   async ping(): Promise<boolean> {
@@ -247,6 +324,7 @@ export class ElasticStore implements ContextStore {
     const filter: Query[] = [{ term: { team_id: params.team_id } }];
     if (params.who) filter.push({ term: { who: params.who } });
     if (params.type) filter.push({ term: { type: params.type } });
+    if (params.side) filter.push({ term: { side: params.side } });
     if (params.before) filter.push({ range: { at: { lt: params.before } } });
     const res = await this.client.search({
       index: this.opts.rawIndex,
