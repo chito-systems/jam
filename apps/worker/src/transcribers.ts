@@ -12,13 +12,21 @@ export interface OpenAITranscriberOptions {
   fetchImpl?: FetchImpl;
   /** Re-encodes a rejected upload before one retry. Defaults to ffmpeg -> mp3. */
   transcode?: Transcode;
+  /** ISO-639-1 hint. Stops the model answering noise in a random language. Empty = auto-detect. */
+  language?: string;
 }
 
 interface OpenAITranscriptionResponse {
   text?: string;
   duration?: number;
-  segments?: Array<{ start?: number; end?: number; text?: string }>;
+  segments?: Array<{ start?: number; end?: number; text?: string; no_speech_prob?: number }>;
 }
+
+/**
+ * Whisper invents text for silence and room noise (a classic: a news sign-off in another
+ * language). It also reports how likely a segment is to contain no speech; above this we drop it.
+ */
+const NO_SPEECH_THRESHOLD = 0.6;
 
 const TIMEOUT_MS = 60_000;
 
@@ -47,11 +55,14 @@ export function uploadFilename(mime: string, filename?: string): string {
 
 export function parseTranscription(body: OpenAITranscriptionResponse): Transcript {
   const segments: TranscriptSegment[] = (body.segments ?? [])
+    .filter((s) => (s.no_speech_prob ?? 0) <= NO_SPEECH_THRESHOLD)
     .map((s) => ({ start_s: s.start ?? 0, end_s: s.end ?? 0, text: (s.text ?? "").trim() }))
     .filter((s) => s.text.length > 0);
   const lastEnd = segments.at(-1)?.end_s;
   const duration_s = body.duration ?? lastEnd ?? 0;
   if (segments.length > 0) return { segments, duration_s };
+  // Segments came back but every one was dropped as non-speech: that is silence, not a text-only reply.
+  if ((body.segments ?? []).length > 0) return { segments: [], duration_s };
   const text = (body.text ?? "").trim();
   if (!text) return { segments: [], duration_s };
   return { segments: [{ start_s: 0, end_s: duration_s, text }], duration_s };
@@ -64,8 +75,10 @@ export class OpenAITranscriber implements Transcriber {
   private readonly baseUrl: string;
   private readonly fetchImpl: FetchImpl;
   private readonly transcode: Transcode;
+  private readonly language: string;
 
   constructor(opts: OpenAITranscriberOptions) {
+    this.language = opts.language ?? "";
     this.transcode = opts.transcode ?? transcodeToMp3;
     this.apiKey = opts.apiKey;
     this.model = opts.model || "whisper-1";
@@ -81,6 +94,7 @@ export class OpenAITranscriber implements Transcriber {
     const blob = new Blob([new Uint8Array(audio.data)], { type: mime });
     form.append("file", blob, uploadFilename(mime, audio.filename));
     form.append("model", this.model);
+    if (this.language) form.append("language", this.language);
     // Only whisper models support verbose_json + segment timestamps; newer models return text only.
     if (this.model.startsWith("whisper")) {
       form.append("response_format", "verbose_json");
@@ -147,5 +161,6 @@ export function createTranscriberFromEnv(env: NodeJS.ProcessEnv): Transcriber | 
     apiKey,
     model: env.OPENAI_TRANSCRIBE_MODEL?.trim() || undefined,
     baseUrl: env.OPENAI_BASE_URL?.trim() || undefined,
+    language: env.TRANSCRIBE_LANGUAGE === undefined ? "en" : env.TRANSCRIBE_LANGUAGE.trim(),
   });
 }

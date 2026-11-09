@@ -106,6 +106,29 @@ describe("OpenAITranscriber response", () => {
     expect(out).toEqual({ duration_s: 0, segments: [{ start_s: 0, end_s: 0, text: "we picked elastic" }] });
   });
 
+  it("drops segments the model itself flags as non-speech (hallucinated text on silence)", async () => {
+    const { impl } = fakeFetch(200, {
+      duration: 6,
+      text: "MBC 뉴스 이덕영입니다. ok ship it",
+      segments: [
+        { start: 0, end: 3, text: "MBC 뉴스 이덕영입니다.", no_speech_prob: 0.93 },
+        { start: 3, end: 6, text: "ok ship it", no_speech_prob: 0.02 },
+      ],
+    });
+    const out = await new OpenAITranscriber({ apiKey: KEY, fetchImpl: impl }).transcribe(audio("audio/webm"));
+    expect(out.segments.map((s) => s.text)).toEqual(["ok ship it"]);
+  });
+
+  it("treats a recording whose every segment is non-speech as silence", async () => {
+    const { impl } = fakeFetch(200, {
+      duration: 3,
+      text: "Thank you for watching.",
+      segments: [{ start: 0, end: 3, text: "Thank you for watching.", no_speech_prob: 0.9 }],
+    });
+    const out = await new OpenAITranscriber({ apiKey: KEY, fetchImpl: impl }).transcribe(audio("audio/webm"));
+    expect(out.segments).toEqual([]);
+  });
+
   it("returns no segments for silence", async () => {
     const { impl } = fakeFetch(200, { text: "", duration: 3, segments: [] });
     const out = await new OpenAITranscriber({ apiKey: KEY, fetchImpl: impl }).transcribe(audio("audio/webm"));
