@@ -57,7 +57,7 @@
       <label><input id="hf" type="checkbox"> hands-free (uploads every 20 s)</label>
       <span id="recStatus"></span>
     </div>
-    <div class="muted">desktop: hold space to talk</div>
+    <div class="muted">desktop: hold space to talk (click outside any text box first)</div>
   </section>
 
   <section class="needs-id">
@@ -144,6 +144,9 @@
     store("hh.team", team);
     store("hh.who", who);
     applyIdentity();
+    // Focus was still in the name box, so "hold space" typed spaces instead of recording.
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    warmMic();
   });
   function hasId() { return Boolean(id.team && id.who); }
 
@@ -250,6 +253,12 @@
     return streamP;
   }
 
+  // Ask for the mic as soon as we know who is talking, so the browser's permission
+  // prompt doesn't swallow the first hold. Nothing is recorded until a hold or hands-free.
+  function warmMic() {
+    if (canRecord && hasId()) getStream().then(() => {}, () => {});
+  }
+
   // One segment = one standalone audio file = one capture.
   function startSegment(stream) {
     const rec = MIME ? new MediaRecorder(stream, { mimeType: MIME }) : new MediaRecorder(stream);
@@ -297,11 +306,15 @@
     }, 100);
   }
   function pressStart() {
-    if (!canRecord || !hasId() || hf || pressing) return;
+    if (!hasId()) { $("idStatus").textContent = "type a team code and your name, then press save — nothing records until you do"; return; }
+    if (!canRecord || hf || pressing) return;
     pressing = true;
     talk.textContent = "opening mic…";
     getStream().then((s) => {
-      if (!pressing && !ptt) talk.textContent = "hold to talk";
+      if (!pressing && !ptt) {
+        talk.textContent = "hold to talk";
+        $("recStatus").textContent = "mic is ready — hold again";
+      }
       if (!pressing || ptt) return; // released before the mic opened
       ptt = startSegment(s);
       setLive(true, ptt.t0);
@@ -326,7 +339,9 @@
   });
   talk.addEventListener("contextmenu", (e) => { e.preventDefault(); });
   function typing(t) {
-    return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+    if (!t) return false;
+    if (t.tagName === "INPUT") return t.type !== "checkbox" && t.type !== "button" && t.type !== "submit";
+    return t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable;
   }
   document.addEventListener("keydown", (e) => {
     if (e.code !== "Space" || typing(e.target)) return;
@@ -433,6 +448,7 @@
   setInterval(refreshRecent, 10000);
 
   applyIdentity();
+  warmMic();
 })();
 </script>
 </body>
