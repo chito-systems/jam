@@ -1,6 +1,6 @@
 import type { RawDoc, TaskDoc } from '@hh/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { agentName, ago, clock, formatMs, isAgent, loadIdentity, mergeNew, saveIdentity, sortTasks, threadFor, upsert } from './live'
+import { agentName, ago, clock, formatMs, isAgent, loadIdentity, mergeNew, newlyDone, saveIdentity, sortTasks, threadFor, upsert } from './live'
 
 const task = (over: Partial<TaskDoc>): TaskDoc => ({
   team_id: 't1',
@@ -136,5 +136,16 @@ describe('identity', () => {
     })
     expect(saveIdentity('bog', 'jake')).toEqual({ team: 'bog', who: 'jake', persisted: false })
     expect(warn).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('newlyDone', () => {
+  it('finds tasks the stream moved from claimed to done', () => {
+    const prev = [task({ id: 'a' }), task({ id: 'b', status: 'done' }), task({ id: 'c' })]
+    const next = [task({ id: 'a', status: 'done' }), task({ id: 'b', status: 'done' }), task({ id: 'c', status: 'released' })]
+    expect(newlyDone(prev, next).map((t) => t.id)).toEqual(['a'])
+  })
+  it('ignores tasks it has never seen, so a baseline load is silent', () => {
+    expect(newlyDone([], [task({ id: 'a', status: 'done' })])).toEqual([])
   })
 })

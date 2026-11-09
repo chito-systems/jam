@@ -104,6 +104,15 @@ export function ThemeIcon({ theme }: { theme: Theme }) {
   )
 }
 
+export function SoundIcon({ on }: { on: boolean }) {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2.5 6h2.5l3.5-3v10l-3.5-3h-2.5z" />
+      {on ? <path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.8a6 6 0 0 1 0 8.4" /> : <path d="M11 6l3.5 4M14.5 6l-3.5 4" />}
+    </svg>
+  )
+}
+
 export function MenuIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
