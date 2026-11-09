@@ -265,7 +265,7 @@ describe('people', () => {
     expect(list.map((m) => m.who)).toEqual(['agent:opus-1', 'cam', 'jake']) // gitar is a reviewer bot, not a teammate
     expect(memberLine(list[0] as Member)).toBe(`on ${tasks[3]?.title}`)
     expect(memberLine(list[2] as Member)).toBe('1 assigned')
-    expect(memberLine(list[3] as Member)).toBe('4 in brain')
+    expect(list).toHaveLength(3)
   })
 
   it('takes a captain\'s side from the roster and lists quiet captains', () => {
