@@ -21,10 +21,10 @@ Capture what the team says, make it searchable in under 10 seconds, give every a
 - IP: owned jointly by Cam and Jake, 50/50. Agreed ___ (time)
 
 ## Checkpoints
-- [ ] 12:15 — text in, text searchable, deployed on cluster
-- [ ] 1:00 — voice in, searchable < 10 s. START USING IT.
-- [ ] 2:00 — MCP on both laptops; webhook ingest; OTel in Dash0
-- [ ] 3:00 — librarian; /brain UI designed; merge queue pane
+- [x] 12:15 — text in, text searchable (deployed on cluster at 3:17)
+- [x] 1:00 — voice in, searchable < 10 s. START USING IT. (1:09)
+- [x] 2:00 — MCP live; GitHub poller instead of a webhook; OTel built but off (no Dash0 track)
+- [x] 3:00 — librarian (jam), grading, work orders, delegator, workspace UI
 - [ ] 4:00 — SLO + chaos; Radar investigation done and screenshotted
 - [ ] 4:30 — FREEZE. README, disclosure, backup demo video
 - [ ] 5:15 — submitted

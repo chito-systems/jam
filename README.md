@@ -4,7 +4,7 @@
 
 Built in one day at the [Cloud Native Hackathon](https://www.wemakedevs.org/hackathons/cnh), Salt Lake City, November 9, 2026, by Cam Hess and Jake Davis. We used it to build itself: the decisions, reviews and task claims from today are in its own database.
 
-- Live: https://jam.cnh.radarhq.io <!-- FILL: confirm at freeze -->
+- Live: https://jam.cnh.radarhq.io
 - Rules both agent teams followed: [`AGENTS.md`](AGENTS.md) · The contract between them: [`packages/shared/src/types.ts`](packages/shared/src/types.ts)
 
 ## The problem
@@ -79,8 +79,11 @@ Gitar reviewed every pull request from the moment it was installed, against our 
 Gitar's reviews are also ingested into JAM, so an agent can search what the reviewer said. It repeatedly flagged pull requests over our own 300-line limit; where we kept them whole we said why on the PR. GitHub's merge queue is not available on a personally-owned repository, so merges were gated on CI and Gitar instead.
 
 ### Radar (Skyhook) — where it runs
-<!-- FILL at freeze: deployed state, the Radar investigation and what we did with it -->
-One Deployment in Radar's hackathon cluster (`jam`, namespace `team-jam`). Every merge to `main` builds an image tagged with the commit SHA (GitHub Actions → GHCR) and advances a `deploy` branch that Argo CD syncs, so `main` only ever receives reviewed pull requests. Data lives outside the cluster in Elastic Cloud. Manifests set requests, limits and readiness, liveness and startup probes; the image runs as a non-root user.
+JAM runs in Radar's hackathon cluster `jam`, namespace `team-jam`, at https://jam.cnh.radarhq.io. One Deployment, one pod: the API, which also serves the workspace and the MCP endpoint. Data lives outside the cluster in Elastic Cloud.
+- **GitOps, with `main` kept clean.** Every merge to `main` builds an image tagged with the commit SHA (GitHub Actions → GHCR) and advances a `deploy` branch that Argo CD syncs. The starter template commits the tag straight to `main`; ours goes to a branch that is `main` plus one line, so `main` only ever receives reviewed pull requests.
+- **First rollout:** the Secret was created by hand, the Argo CD Application applied once, and the cluster went from the starter page to JAM in under a minute (`/healthz` reports the running commit, which is how a deploy is verified).
+- **Manifests** set requests and limits (well inside the team budget), readiness, liveness and startup probes, and run the image as a non-root user.
+<!-- FILL at freeze: the Radar check or investigation we ran and what we changed because of it -->
 
 ### Conferences for everyone (Merge Forward)
 Capture is voice-first: no typing, no account, works one-handed on a phone, and the page says out loud when the browser has refused the microphone. Hold-to-talk is also the consent model; nothing records unless someone is holding the button.
@@ -111,6 +114,10 @@ pnpm check               # typecheck, lint, tests: what CI runs
 Add the brain to a Claude Code session:
 ```bash
 claude mcp add jam --scope user --transport http "http://localhost:3000/mcp?team_id=<team code>&who=<name>&side=backend"
+```
+Or start a session that is already connected, under its own name, so the workspace can tell agents apart:
+```bash
+./scripts/jam-agent.sh cam-opus-1 backend     # <human>-<model>-<n>
 ```
 A zero-design capture page is at `/c`; the workspace is at `/`.
 
