@@ -32,7 +32,10 @@ function health(req: IncomingMessage, res: ServerResponse) {
 }
 
 function startShell(): ChildProcess {
-  const env = { ...process.env, TERM: 'xterm-256color' }
+  // The bridge is usually started through pnpm, which exports npm_* variables. Passed on to an
+  // interactive shell they make nvm print a compatibility warning at every prompt start, so drop them.
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(npm_|PNPM_|INIT_CWD$)/i.test(k)))
+  const env = { ...inherited, TERM: 'xterm-256color' }
   // detached: our own process group, so Ctrl+C in the bridge's terminal reaches only the bridge.
   if (PYTHON) return spawn('python3', [HELPER, SHELL, '80', '24'], { cwd: CWD, env, detached: true, stdio: ['pipe', 'pipe', 'inherit', 'pipe'] })
   return spawn('script', ['-q', '/dev/null', SHELL, '-l', '-i'], { cwd: CWD, env, detached: true, stdio: ['pipe', 'pipe', 'inherit'] })
