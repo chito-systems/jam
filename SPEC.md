@@ -4,6 +4,8 @@
 
 **Product (one sentence):** JAM is an open-source ADE that gives a hackathon team one shared, searchable context brain (Elasticsearch), one safe merge path for humans and agents (Gitar + merge queue), and a focus-first interface for the human while agents work.
 
+> **What changed since this was written (4:10 PM).** This is the morning spec, kept as written. The merge path shipped as PR → Gitar → CI → merge (no merge queue: GitHub does not offer it on a personally-owned repository; Gitar auto-apply off). Board and PR ingestion is a poller. We entered Elasticsearch, Gitar and Radar, not Dash0; OpenTelemetry is implemented but off. JAM is live at https://jam.cnh.radarhq.io. The README describes what shipped.
+
 **Built for:** this hackathon, today, by a team using it to build itself. Generalizes to any team building with agents.
 
 ## Three pillars (pitch order)

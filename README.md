@@ -7,6 +7,12 @@ Built in one day at the [Cloud Native Hackathon](https://www.wemakedevs.org/hack
 - Live: https://jam.cnh.radarhq.io
 - Rules both agent teams followed: [`AGENTS.md`](AGENTS.md) · The contract between them: [`packages/shared/src/types.ts`](packages/shared/src/types.ts)
 
+## Who did what
+- **Cam Hess and Jake Davis** chose the problem, the product and its three pillars; chose every sponsor tool and the role it plays; and set the architecture decisions in [`PROJECT.md`](PROJECT.md) before code was written: Elasticsearch as the only data layer, raw-first immutable storage with an LLM layer on top, one ingest path, MCP as the agent interface, a PR-only `main` with an AI reviewer, GitOps to the Radar cluster. They split the work into a backend side (Cam) and a frontend side (Jake), and directed every feature during the day in their own words, many of which are in JAM's own brain: the delegation system, backend/frontend tagging, grading jam's output with a human verdict, work orders and the rule that a named person gets the work, agent identities, the workspace layout, the desktop app.
+- **Claude Code** implemented those decisions. It worked out the detailed design inside them (the contract types, module boundaries, prompts) and wrote the code and tests, one pull request per task, under the rules in [`AGENTS.md`](AGENTS.md).
+- **OpenAI models** run inside the product. **Gitar** reviewed the pull requests.
+- The humans reviewed what shipped by using it all afternoon. Each pull request states which tools wrote it.
+
 ## The problem
 Two people, a dozen coding agents, six hours. Within an hour nobody, human or agent, has the same picture of what was decided. Agents build the wrong thing confidently, two of them edit the same file, and the humans become the message bus.
 
@@ -35,6 +41,10 @@ flowchart LR
 5. **Keep agents off each other.** Before editing, an agent claims the paths it will touch. A claim is refused if the path belongs to the other half of the team, or if another agent already holds it; the refusal names the holder, and both sides see the clash.
 6. **Give every agent the same brain.** One MCP server exposes all of it: `context_search`, `context_recent`, `context_decisions`, `context_add`, `task_next`, `task_accept`, `task_claim`, `task_done`, `task_list`, `who_owns`, `item_verdict`.
 7. **Receipts.** `GET /api/decisions.md` renders the day's decisions, each quoting who said what and when.
+8. **Agents have identities.** Each agent connects under its own name (`cam-opus-1`), so the workspace shows who is who, whose agent it is, and which files it holds.
+9. **Terminals inside the workspace.** One terminal tab per agent in the centre pane, next to the feed.
+10. **Ship view.** Today's pull requests and Gitar's reviews of them, ingested from GitHub into the same brain.
+11. **A native desktop app** (`desktop/`), described below.
 
 There is no custom agent runtime. The harness is one MCP server, one rules file, and a reviewer on every pull request.
 
@@ -56,34 +66,68 @@ Design choices we can defend:
 - **One contract file.** Frontend and backend were built by two separate agent teams against `packages/shared/src/types.ts`. Contract changes land in their own pull request.
 - **One replica, on purpose.** Capture status and the live feed are held in process memory. Splitting the worker into its own Deployment is the next step, and the `Dispatcher` interface is already the seam for it.
 
-## Sponsor tools: what we used and what for
+## How JAM uses each sponsor tool
 
-### Elasticsearch — the core data layer
-Elastic Cloud Serverless. Three indices: `context_raw` (transcript chunks), `context_items` (what jam extracted), `context_tasks` (claims and work orders). Nothing else stores data.
-- Each document has a `text` field for BM25 and a `semantic_text` copy (via `copy_to`) that Elasticsearch embeds on ingest with `jina-embeddings-v5-text-small`. No embedding service of our own.
-- Search is one request: an RRF retriever over a keyword query and a semantic query, across raw chunks and items together, filtered by team, person, type, side and time.
-- Immutability is enforced by the write (`op_type: create`), not by convention.
-- "Searchable in X s" is measured honestly: the write uses `refresh: wait_for`, so the clock stops when the document is visible to search.
-- If the inference endpoint is unavailable, search falls back to keyword-only and says so (`mode: "keyword"`).
+### Elasticsearch: the product's data layer
+JAM is, underneath, a set of Elasticsearch indices and the queries over them. Code: [`packages/shared/src/elastic.ts`](packages/shared/src/elastic.ts).
 
-Code: [`packages/shared/src/elastic.ts`](packages/shared/src/elastic.ts).
+**Where the data lives.** One Elastic Cloud Serverless project, three indices. Nothing else stores data: no Postgres, no Redis.
+- `context_raw`: transcript chunks and ingested text, exactly as captured. Immutable.
+- `context_items`: what jam extracted (decisions, todos, questions), each pointing back at its raw chunk ids, with jam's confidence and a human's verdict.
+- `context_tasks`: file claims and work orders.
 
-### Gitar (Sonar) — a review on every pull request
-Gitar reviewed every pull request from the moment it was installed, against our own rules in [`.gitar/review/instructions.md`](.gitar/review/instructions.md). We answered every finding on the PR: fixed, or declined with a reason. Things it caught that would have bitten us:
-- **#23** — our agent docs still said to wait for a deploy commit on `main` after we moved it to a `deploy` branch. An agent following them would have waited forever.
-- **#30** — a human's confirm/reject could be overwritten if jam's model call was in flight.
-- **#39** — two people accepting the same work order at the same moment both succeeded.
-- **#25** — after a restart the GitHub poller would re-ingest older items and fill the feed with failures.
-- **#26** — the decision log could report an existing source as "not found" past a size cap.
+**Mappings.** Every mapping is `dynamic: "strict"`, so a misspelled field is a write error, not a silent new field. Each text field is a BM25 `text` field that copies itself into a `semantic_text` field:
+```ts
+text: { type: "text", copy_to: "text_semantic" },
+text_semantic: { type: "semantic_text" },
+```
+Elasticsearch embeds `text_semantic` on ingest through its own inference service (the live cluster reports `jina-embeddings-v5-text-small`, 1024 dimensions). We run no embedding service. Why two fields: a `match` query on a `semantic_text` field is already semantic, so one field cannot give you both keyword and semantic matching.
 
-Gitar's reviews are also ingested into JAM, so an agent can search what the reviewer said. It repeatedly flagged pull requests over our own 300-line limit; where we kept them whole we said why on the PR. GitHub's merge queue is not available on a personally-owned repository, so merges were gated on CI and Gitar instead.
+**Search is one request.** An RRF retriever over a keyword query and a semantic query, across raw chunks and items together, with the same filters (team, person, type, side, since) on both:
+```ts
+retriever: { rrf: { rank_window_size: 50, retrievers: [
+  { standard: { query: { bool: { must: [{ match: { text: q } }], filter } } } },
+  { standard: { query: { bool: { must: [{ semantic: { field: "text_semantic", query: q } }], filter } } } },
+] } }
+```
+One follow-up query then attaches extracted items to the raw chunks they came from (a `terms` filter on `raw_ids`). If the inference endpoint is unavailable, search falls back to keyword-only and the response says `mode: "keyword"`.
 
-### Radar (Skyhook) — where it runs
+A real example of semantic recall: the query "why does gitops not write to the primary branch" returned the note "Argo CD tracks a separate deploy branch because the merge queue rejects direct pushes to main."
+
+**Immutability is enforced by the write, not by convention.** Raw chunks are written with a bulk `create` action, so a second write to an existing id is rejected with a 409 and the store throws:
+```ts
+operations: docs.flatMap((doc) => [{ create: { _index: index, _id: doc.id } }, doc]),
+```
+
+**"Searchable in X s" is an honest number.** Writes use `refresh: "wait_for"`, so the clock stops when the document is visible to search. Measured today at roughly 4 to 6 seconds for voice and text, against a 10 second target.
+
+**What else reads Elasticsearch.**
+- The decision log: items, plus their raw quotes fetched by id.
+- The delegator's overlap check: open claims in `context_tasks`. Claims are written with `wait_for` too, so the very next claim sees them.
+- The dashboard counts: `terms` aggregations by person, type and side.
+- The Ship view: `pr` and `review` documents ingested from GitHub.
+- Every MCP tool an agent calls.
+
+**Evolving a strict mapping on a live index.** `ensureReady` creates any missing index; for an existing one it sends `putMapping` with the current plain fields, so fields added during the day (for example `side` on raw chunks) appear without a reindex. It leaves the `semantic_text` field alone.
+
+### Radar (Skyhook): where it runs
 JAM runs in Radar's hackathon cluster `jam`, namespace `team-jam`, at https://jam.cnh.radarhq.io. One Deployment, one pod: the API, which also serves the workspace and the MCP endpoint. Data lives outside the cluster in Elastic Cloud.
 - **GitOps, with `main` kept clean.** Every merge to `main` builds an image tagged with the commit SHA (GitHub Actions → GHCR) and advances a `deploy` branch that Argo CD syncs. The starter template commits the tag straight to `main`; ours goes to a branch that is `main` plus one line, so `main` only ever receives reviewed pull requests.
 - **First rollout:** the Secret was created by hand, the Argo CD Application applied once, and the cluster went from the starter page to JAM in under a minute (`/healthz` reports the running commit, which is how a deploy is verified).
 - **Manifests** set requests and limits (well inside the team budget), readiness, liveness and startup probes, and run the image as a non-root user.
-- **What Radar found, and what we changed.** Once JAM was running we opened Radar's Checks on the cluster. Two findings were ours: the pod had a writable root filesystem, and it mounted a service account token it never uses. We fixed both in one pull request: `readOnlyRootFilesystem: true` with an `emptyDir` for `/tmp`, and `automountServiceAccountToken: false`. We tested the image read-only on a laptop first, merged, and Argo CD rolled it out. One finding we left on purpose: "single replica". Capture status and the live feed are in process memory today, so a second replica would give inconsistent answers until the worker is split out.
+- **What Radar found, and what we changed.** Once JAM was running we opened Radar's Checks on the cluster. Two findings were ours: the pod had a writable root filesystem, and it mounted a service account token it never uses. We fixed both in one pull request (#57): `readOnlyRootFilesystem: true` with an `emptyDir` for `/tmp`, and `automountServiceAccountToken: false`. We tested the image read-only on a laptop first, merged, and Argo CD rolled it out; the pod came back healthy. One finding we left on purpose: "single replica". Capture status and the live feed are in process memory today, so a second replica would give inconsistent answers until the worker is split out.
+
+### Gitar (Sonar): a review on every pull request
+Gitar was installed on the repository around 1:30 PM (its first comment is at 20:30 UTC, on #21) and reviewed every pull request after that, against our own rules in [`.gitar/review/instructions.md`](.gitar/review/instructions.md). At the time of writing, 61 pull requests have been merged and 39 carry a Gitar comment. Every finding was answered on the PR: fixed, or declined with a reason. Things it caught that would have bitten us:
+- **#23**: our agent docs still said to wait for a deploy commit on `main` after we moved it to a `deploy` branch. An agent following them would have waited forever.
+- **#25**: after a restart the GitHub poller would re-ingest older items and fill the feed with failures.
+- **#26**: the decision log could report an existing source as "not found" past a size cap.
+- **#30**: a human's confirm/reject could be overwritten if jam's model call was in flight.
+- **#39**: two people accepting the same work order at the same moment both succeeded.
+- **#48**: the in-memory registry of connected agents could grow without bound, one entry per team code anyone sent. Fixed with a cap and stalest-first eviction.
+- **#50**: the markdown renderer could loop forever on certain invisible line-separator characters (U+2028, U+2029) in a transcript. Fixed, with tests for those characters and a 5,000-line hostile input.
+
+Gitar's reviews are themselves ingested into JAM and shown in the workspace's Ship view, so an agent can search what the reviewer said. It repeatedly flagged pull requests over our own 300-line limit; where we kept them whole we said why on the PR. Limits, plainly: there is no GitHub merge queue (it is not offered on a personally-owned repository), so merges were gated on CI and Gitar; and Gitar's auto-apply was off.
 
 ### Conferences for everyone (Merge Forward)
 Capture is voice-first: no typing, no account, works one-handed on a phone, and the page says out loud when the browser has refused the microphone. Hold-to-talk is also the consent model; nothing records unless someone is holding the button.
@@ -140,13 +184,13 @@ A zero-design capture page is at `/c`; the workspace is at `/`.
 - OpenTelemetry traces, metrics and logs are implemented and tested against a local collector (#37), but no backend is configured, so they are off.
 
 ## What we'd do next
-`jam init`: stamp out this repository's setup (rules file, sides, review instructions, CI, contract) for a new team in one command, run by a human captain. Then take the same capture button to the conference itself: a conference is the densest context a developer gets all year, and almost none of it survives the flight home.
+A phone app is in progress: the same hold-to-talk capture, in your pocket. `jam init`: stamp out this repository's setup (rules file, sides, review instructions, CI, contract) for a new team in one command, run by a human captain. Then take the same capture button to the conference itself: a conference is the densest context a developer gets all year, and almost none of it survives the flight home.
 
 ## Open-source components
 Hono, Zod, `@elastic/elasticsearch`, `@modelcontextprotocol/sdk`, OpenTelemetry JS, Vite, React, Vitest, Biome, tsx (all MIT or Apache-2.0). ffmpeg is installed in the image as a system package (LGPL/GPL, used unmodified as a separate binary). Kubernetes manifests and the deploy workflow started from Radar's `cnh-starter`.
 
 ## AI disclosure
-Built with AI coding assistants, disclosed per the hackathon rules. Claude Code wrote most of the code: one orchestrator session per side (Claude Fable) designed the architecture and the contract, wrote task briefs, and merged; Claude Opus subagents implemented one brief per pull request. OpenAI models run inside the product (Whisper for transcription, `gpt-5.4-mini` for extraction and work orders). Gitar reviewed every pull request. Cam and Jake chose the product, the tools and the rules, directed every step, and used the product all afternoon. Each pull request states which tools wrote it.
+Built with AI coding assistants, disclosed per the hackathon rules. Cam and Jake made the product and architecture decisions (see "Who did what" above and [`PROJECT.md`](PROJECT.md)), chose the tools and wrote the rules, and directed every feature. Claude Code did the detailed design and the implementation inside those decisions: one orchestrator session per side (Claude Fable) turned the humans' direction into the contract types and task briefs and merged; Claude Opus subagents implemented one brief per pull request. OpenAI models run inside the product (Whisper for transcription, `gpt-5.4-mini` for extraction and work orders). Gitar reviewed the pull requests. The humans reviewed what shipped by using it all afternoon. Each pull request states which tools wrote it.
 
 ## License
 MIT. Copyright 2026 Cam Hess and Jake Davis.
