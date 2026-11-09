@@ -294,4 +294,16 @@ describe('people', () => {
       ['agent:stray-1', undefined],
     ])
   })
+
+  it('keeps a person when their agent shares their name, and gives the agent no captaincy or work orders', () => {
+    const agents = [{ team_id: 't1', id: 'agent:jake', name: 'jake', human: 'jake', state: 'active' as const, first_seen: '2026-11-09T19:00:00.000Z', last_seen: '2026-11-09T19:00:00.000Z', calls: 1, claims: [] }]
+    const list = roster({}, tasks, [], { frontend: 'jake' }, agents)
+    const jake = list.find((m) => m.who === 'jake') as Member
+    const bot = list.find((m) => m.who === 'agent:jake') as Member
+    expect(jake.captain).toBe('frontend')
+    expect(jake.assigned.map((t) => t.id)).toEqual(['p1'])
+    expect(bot.captain).toBeUndefined()
+    expect(bot.assigned).toEqual([])
+    expect(grouped(list).find((g) => g.m.who === 'agent:jake')?.under).toBe('jake')
+  })
 })

@@ -163,7 +163,9 @@ export function member(who: string, tasks: TaskDoc[], docs: RawDoc[], inBrain = 
   const by = new Set([who, ...helpers.map((a) => a.id)])
   const mine = sortTasks(tasks.filter((t) => t.status !== 'proposed' && by.has(t.owner)))
   const working = mine.filter((t) => t.status === 'claimed')
-  const assigned = tasks.filter((t) => t.status === 'proposed' && !!t.suggested_owner && sameWho(t.suggested_owner, who))
+  // Work orders and captaincy belong to people, never to an agent that shares their name (agent:jake).
+  const person = !isAgent(who)
+  const assigned = person ? tasks.filter((t) => t.status === 'proposed' && !!t.suggested_owner && sameWho(t.suggested_owner, who)) : []
   const said = docs.filter((d) => d.who === who && !d.source_ref?.startsWith('task:'))
   // Open claims count most, then work jam's roster routed to them, then finished work, then
   // which half of the team their captures came from.
@@ -172,7 +174,7 @@ export function member(who: string, tasks: TaskDoc[], docs: RawDoc[], inBrain = 
   for (const t of assigned) votes[t.side] += 2
   for (const t of mine) votes[t.side] += 1
   for (const d of said) if (d.side) votes[d.side] += 0.5
-  const captain = (Object.keys(captains) as Side[]).find((k) => sameWho(captains[k] ?? '', who))
+  const captain = person ? (Object.keys(captains) as Side[]).find((k) => sameWho(captains[k] ?? '', who)) : undefined
   const guess = votes.backend || votes.frontend ? (votes.backend >= votes.frontend ? 'backend' : 'frontend') : undefined
   const side = captain ?? guess
   return {
@@ -196,7 +198,7 @@ export function member(who: string, tasks: TaskDoc[], docs: RawDoc[], inBrain = 
  */
 export function roster(byWho: Record<string, number>, tasks: TaskDoc[], docs: RawDoc[], captains: Captains = {}, agents: AgentDoc[] = []): Member[] {
   const names = new Set(Object.keys(byWho))
-  const addName = (n: string) => ![...names].some((x) => sameWho(x, n)) && names.add(n)
+  const addName = (n: string) => ![...names].some((x) => !isAgent(x) && sameWho(x, n)) && names.add(n)
   for (const t of tasks) {
     if (t.status !== 'proposed') names.add(t.owner)
     else if (t.suggested_owner) addName(t.suggested_owner)
@@ -300,12 +302,12 @@ export function searchBrain(team: string, q: string): Promise<SearchResponse> {
   return getJson<SearchResponse>('/api/search', { team_id: team, q, limit: 20 })
 }
 
-/** Which side owns which paths, and each side's captain. */
 /** The team's coding agents: presence, who each works for, last tool. There is no SSE event for it, so poll. */
 export function loadAgents(team: string): Promise<AgentsResponse> {
   return getJson<AgentsResponse>('/api/agents', { team_id: team })
 }
 
+/** Which side owns which paths, and each side's captain. */
 export function loadOwnership(team: string): Promise<OwnershipMapResponse> {
   return getJson<OwnershipMapResponse>('/api/ownership', { team_id: team })
 }
