@@ -1368,3 +1368,88 @@
     font-size: 16px;
   }
 }
+
+/* ---------- hold to talk, sound, agent finished ---------- */
+
+.ade {
+  .bar {
+    position: relative;
+  }
+  .talk {
+    display: grid;
+    cursor: pointer;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+  /* Both faces share one cell, so the button keeps the wider one's width: no jump. */
+  .talk > span {
+    grid-area: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+  }
+  .talk-live,
+  .talk[aria-pressed="true"] .talk-idle {
+    visibility: hidden;
+  }
+  .talk[aria-pressed="true"] .talk-live {
+    visibility: visible;
+  }
+  .talk[aria-pressed="true"] i {
+    animation: blink 1.2s ease-in-out infinite;
+  }
+  .lvl {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 12px;
+  }
+  .lvl b {
+    width: 3px;
+    height: 12px;
+    border-radius: 1px;
+    background: currentColor;
+    transform: scaleY(0.15);
+  }
+  .secs {
+    min-width: 5ch;
+    text-align: right;
+    font: 11px var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .talk-msg {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 12px;
+    z-index: 30;
+    max-width: min(300px, calc(100vw - 24px));
+    padding: 6px 9px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    color: var(--ink);
+    font-size: 12px;
+    white-space: normal;
+  }
+  .talk-msg:empty {
+    display: none;
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .sb .sb-done {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--ink);
+  }
+}

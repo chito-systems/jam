@@ -69,6 +69,12 @@ export function mergeNew<T extends { id: string }>(have: T[], loaded: T[], key: 
   return [...have, ...loaded.filter((d) => !seen.has(d.id))].sort((a, b) => key(b).localeCompare(key(a))).slice(0, max)
 }
 
+/** Tasks that were in `prev` and not done, and are done in `next`. Unknown tasks never count. */
+export function newlyDone(prev: TaskDoc[], next: TaskDoc[]): TaskDoc[] {
+  const was = new Map(prev.map((t) => [t.id, t.status]))
+  return next.filter((t) => t.status === 'done' && was.has(t.id) && was.get(t.id) !== 'done')
+}
+
 export function formatMs(ms: number | undefined): string {
   if (ms === undefined) return 'n/a'
   return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`
