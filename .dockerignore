@@ -1,0 +1,13 @@
+# Kept out of the image build context.
+.git
+**/node_modules
+**/*kubeconfig*
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+.data
+**/dist
+coverage
+cnh-scaffold
+.claude

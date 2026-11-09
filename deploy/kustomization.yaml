@@ -1,0 +1,15 @@
+# Argo CD deploys this folder to your team's namespace. The deploy GitHub
+# Action sets the image below to ghcr.io/<owner>/<repo>:<short commit SHA> on
+# every build; don't edit newName or newTag by hand. The tag starts as a
+# placeholder SHA (never `latest`), so nothing runs until the first build.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: team-__TEAM__
+resources:
+  - deployment.yaml
+  - service.yaml
+  - httproute.yaml
+images:
+  - name: app
+    newName: ghcr.io/OWNER/REPO
+    newTag: "0000000"
