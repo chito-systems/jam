@@ -54,11 +54,13 @@ type TalkProps = {
   toggle?: boolean
   /** Called with the button the moment a toggle recording is asked for. */
   onPress?: (button: HTMLElement) => void
+  /** Hand the finished clip to this instead of sending it (the phone reads it back first). */
+  onClip?: (blob: Blob, at: string) => void
 }
 
 /** Hold the button, or Alt+Space anywhere, to record; release to send; Esc cancels.
  *  With `toggle`, a tap starts and the next tap sends. */
-export function Talk({ id, onOutgoing, toggle = false, onPress }: TalkProps) {
+export function Talk({ id, onOutgoing, toggle = false, onPress, onClip }: TalkProps) {
   const [t0, setT0] = useState<number | null>(null)
   const [now, setNow] = useState(0)
   const [msg, setMsg] = useState('')
@@ -96,7 +98,7 @@ export function Talk({ id, onOutgoing, toggle = false, onPress }: TalkProps) {
         return hint('The mic is ready. Hold to talk.')
       }
       try {
-        const mime = pickMime((m) => MediaRecorder.isTypeSupported?.(m) ?? false)
+        const mime = pickMime((m) => MediaRecorder.isTypeSupported?.(m) ?? false, Boolean(onClip) && IN_SHELL())
         const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
         const r: Rec = { rec, stream, parts: [], at: new Date().toISOString(), t0: Date.now(), stopMeter: meter(stream, bars.current) }
         rec.ondataavailable = (e) => {
@@ -143,6 +145,7 @@ export function Talk({ id, onOutgoing, toggle = false, onPress }: TalkProps) {
       const blob = new Blob(r.parts, { type: r.rec.mimeType || 'audio/webm' })
       console.debug('talk: clip', { bytes: blob.size, parts: r.parts.length, type: blob.type })
       if (!blob.size) return fail('The mic gave no audio, so nothing was sent.')
+      if (onClip) return onClip(blob, r.at)
       const key = r.at
       onOutgoing({ key })
       setSay('Sending the voice note.')
