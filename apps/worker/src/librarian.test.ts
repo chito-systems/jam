@@ -166,6 +166,14 @@ describe("dispatcher + librarian", () => {
     expect(errorSpy.mock.calls[0]?.[1]).toMatchObject({ capture_id: "c1", team_id: "t1" });
   });
 
+  it("skips PR and review captures (machine-made text is not mined for decisions)", async () => {
+    const { d, calls, state } = setup(async () => []);
+    await d.dispatch({ ...job(), type: "review" as const });
+    await vi.waitFor(() => expect(state()).toBe("indexed"));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(calls).toHaveLength(0);
+  });
+
   it("skips task: captures", async () => {
     const { d, calls, state } = setup(async () => []);
     await d.dispatch(job("task:abc"));
