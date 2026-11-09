@@ -87,5 +87,6 @@ export function Burst({ x, y, onDone }: { x: number; y: number; onDone: () => vo
     return () => cancelAnimationFrame(raf)
   }, [x, y, onDone])
 
-  return <canvas ref={canvas} className="c-burst" role="presentation" />
+  // biome-ignore lint/a11y/noAriaHiddenOnFocusable: a decorative canvas, never focusable; the talk button announces the recording
+  return <canvas ref={canvas} className="c-burst" aria-hidden="true" />
 }
