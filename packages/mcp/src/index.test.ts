@@ -205,7 +205,8 @@ describe("task tools", () => {
     await call("task_claim", { title: "stats route", paths: ["apps/api/"] }, A);
     await call("task_claim", { title: "fix app", paths: ["apps/api/src/app.ts"] }, B);
     expect(published.at(-1)).toMatchObject({ event: "task", data: { owner: "agent:opus-a", title: "stats route" } });
-    const [note] = await store.recent({ team_id: "t1", limit: 1 });
+    // The claim note and the clash note can share a millisecond, so don't rely on which sorts first.
+    const note = (await store.recent({ team_id: "t1", limit: 10 })).find((d) => d.source_ref === "clash");
     expect(note).toMatchObject({ who: "agent:opus-b", side: "backend", source_ref: "clash" });
     expect(note?.text).toBe('[clash] agent:opus-b tried to claim apps/api/src/app.ts but agent:opus-a holds them for "stats route"');
   });
