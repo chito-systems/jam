@@ -61,6 +61,24 @@ The librarian runs after each ingest batch: reads the new raw chunks plus the la
 ### Search
 Hybrid query (BM25 on `text` + kNN via `semantic_text`, RRF) over both indices, filtered by `team_id`, optional `who`/`type`/`since`. Return raw chunk + any items derived from it.
 
+## Contract and seams (added 12:20, after the monorepo scaffold)
+The contract is `packages/shared/src/types.ts`: routes, request/response schemas (zod), SSE events. Three seams keep the streams independent:
+
+| Seam | Interface (in `packages/shared`) | Implementations |
+| --- | --- | --- |
+| Data layer | `ContextStore` | `ElasticStore` (production, the only one deployed) · `MemoryStore` (tests, no-credential laptops; keyword only) |
+| Ingest | `Dispatcher` | inline (pipeline runs in the api process; dev and v0) · HTTP to the worker Deployment (cluster; gives the cross-service trace) |
+| Speech | `Transcriber` | OpenAI Whisper API · local whisper.cpp later |
+
+Refinements to the table above, same intent:
+- Web and API share one origin (the cluster routes one hostname to Service `app`), so the API lives under `/api/*`, MCP at `/mcp`, and the API serves the built web app.
+- Raw docs carry `capture_id` (one recording = one capture = many chunks). `id` is `<capture_id>:<seq>`.
+- Mapping: `text` is a plain `text` field (BM25) with `copy_to` a `semantic_text` field. Hybrid search runs both through an RRF retriever. A `match` on a `semantic_text` field is already semantic, so one field can't give you both halves.
+- Immutability is enforced by the write, not by convention: raw docs are indexed with `op_type: create`.
+- Every capture reports `ms_to_searchable` (`GET /api/captures/:id`). The SLO number is a product feature, shown in the UI.
+- `GET /api/events` is an SSE feed of everything entering the brain; the focus pane reads it.
+- Until `apps/web` ships `/capture`, the API serves a zero-design capture page at `/c` so we can start capturing. It is deleted when stream B's page is live.
+
 ## Request flow
 1. Phone: hold the button → MediaRecorder captures webm/opus → on release, `POST /ingest` (multipart, `type=voice`, `who`, `team_id`).
 2. API: writes a job to the worker queue (Redis if cheap; else a Postgres-free in-process queue in the worker fed by an HTTP call), returns `202 {job_id}`.

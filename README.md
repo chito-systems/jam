@@ -37,7 +37,8 @@ In an agent-era hackathon, a team's context fragments across people, agents, voi
 ```bash
 pnpm install
 cp .env.example .env     # fill in Elastic + OpenAI + OTel
-pnpm dev                 # web :5173, api :3000, worker
+pnpm dev                 # web :5173, api :3000
+# no credentials? STORE=memory pnpm dev:api
 ```
 <!-- verify on a clean clone at 4:00 -->
 

@@ -1,0 +1,12 @@
+{
+  "name": "@hh/worker",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts", "start": "tsx src/main.ts" },
+  "dependencies": {
+    "@hh/shared": "workspace:*",
+    "@hono/node-server": "^2.1.6",
+    "hono": "^4.13.17"
+  }
+}

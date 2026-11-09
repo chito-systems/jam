@@ -1,6 +1,6 @@
 # AGENTS.md — Hack Harness
 
-Rules for every coding agent and human in this repo. Read order: this file → PROJECT.md → NOW.md → Issue #1 (the Board). Keep this file short.
+Rules for every coding agent and human in this repo. Read order: this file → PROJECT.md → NOW.md → Issue #1 (the Board). The pitch lives in PITCH.md. Keep this file short.
 
 ## Context
 - Cloud Native Hackathon, Salt Lake City, 2026-11-09. Submission deadline **5:30 PM MT**. Freeze at 4:30.
@@ -8,22 +8,27 @@ Rules for every coding agent and human in this repo. Read order: this file → P
 - We use this product to build itself. From the moment `/capture` works, team conversations go into the brain and agents read it via the `context` MCP server.
 - Judges read the repo. Write PRs you'd be proud to explain out loud.
 
-## Streams and ownership (don't edit outside your stream)
-| Stream | Label | Owner | Scope |
-| --- | --- | --- | --- |
-| A · Brain | `stream:A-brain` | Cam | `apps/api/`, `apps/worker/`, `packages/shared/`, Elastic mappings, ingest, transcription, librarian |
-| B · UI | `stream:B-ui` | Jake | `apps/web/` — capture page, brain page, design system |
-| C · Platform | `stream:C-platform` | Cam (Fable session) | `Dockerfile*`, `deploy/`, `argocd/`, `.github/`, OTel bootstrap, env, CI |
-| D · MCP | `stream:D-mcp` | Cam (Opus session) | `packages/mcp/` |
+## Two sides, four streams (don't edit outside your side)
+| Side | Human | Orchestrator | Streams | Owns |
+| --- | --- | --- | --- | --- |
+| **Backend** | Cam (`@chito-systems`) | Fable session on Cam's laptop | A · Brain `stream:A-brain`, C · Platform `stream:C-platform`, D · MCP `stream:D-mcp` | `apps/api/`, `apps/worker/`, `packages/shared/`, `packages/mcp/`, `Dockerfile*`, `deploy/`, `argocd/`, `.github/`, `scripts/`, root config (`package.json`, `pnpm-*.yaml`, `tsconfig.base.json`, `biome.json`) |
+| **Frontend** | Jake (`@quakeob`) | Fable session on Jake's laptop | B · UI `stream:B-ui` | `apps/web/` — everything in it, including its `package.json` |
 
-The contract between streams is `packages/shared/src/types.ts`. Change it only in its own small PR, tag both owners on the Board.
+Shared docs: `PITCH.md` (anyone, add under your own heading, never rewrite someone else's lines), `NOW.md` (orchestrators only), `PROJECT.md` / `SPEC.md` / `AGENTS.md` (change in a docs-only PR, tag the other human).
 
-Need something in another stream? Post on the Board and tag the owner, or open a PR into their scope and let them merge it. Never edit their files on your branch.
+### The seven rules that keep two agent teams from colliding
+1. **The contract is `packages/shared/src/types.ts`.** Routes, request and response shapes, SSE events. Frontend builds against it; backend implements it. It changes only in its own PR containing nothing else, and the PR tags both humans. If the contract doesn't have what you need, ask on the Board; don't invent a field.
+2. **Stay on your side of the table above.** Need something on the other side? Board post tagging the owner, or open a PR into their scope and let *their* orchestrator merge it. Never edit their files on your branch.
+3. **One orchestrator per side merges.** Subagents branch, commit, push, open a PR, and stop. Only the side's orchestrator (or its human) runs `gh pr merge`. Nobody merges the other side's PRs.
+4. **One worktree per agent.** Subagents never share a checkout: `git worktree add ../wt/<branch> -b <branch> origin/main`. The main checkout belongs to the human.
+5. **One task, one branch, one PR, one stream label.** A subagent's brief names the exact paths it may touch. Touching anything else is a failed task, not initiative.
+6. **Lockfile:** only add dependencies to your own package's `package.json`. If `pnpm-lock.yaml` conflicts on rebase, take `main`'s copy and run `pnpm install`; never hand-merge it.
+7. **Frontend never waits on backend.** `STORE=memory pnpm dev:api` runs the whole API on a laptop with no credentials. If an endpoint in the contract isn't implemented yet, mock it from the schema and keep going.
 
 ## The loop (every change, no exceptions)
 ```
-git checkout main && git pull
-git checkout -b <feat|fix|infra>/<stream-letter>-<short-name>
+git fetch origin
+git worktree add ../wt/<name> -b <feat|fix|infra>/<stream-letter>-<short-name> origin/main   # humans may just branch
 # work; run tests + lint locally
 git push -u origin HEAD
 gh pr create --fill --label stream:<X>
@@ -33,7 +38,7 @@ gh issue comment 1 --body "<Stream>: <what landed> in #<pr>. Next: <thing>. Bloc
 ```
 - One feature per PR, **under 300 lines of diff**. Bigger → split.
 - Pull `main` before every branch. Rebase, don't merge, if behind.
-- No tests for what you changed? Add one. CI runs typecheck, lint, tests.
+- No tests for what you changed? Add one. CI runs typecheck, lint, tests: `pnpm check` runs the same thing locally.
 - Only `gh pr merge --auto` lands code. Nobody pushes to `main`. Nobody force-pushes anywhere.
 
 ## The Board (Issue #1, pinned)
@@ -62,8 +67,7 @@ Add once per laptop: `claude mcp add hack-harness-context --scope user --transpo
 Before starting a task, call `context_recent` and `context_decisions`. When you make a non-obvious choice, call `context_add` with one sentence. When unsure what the humans meant, `context_search` before asking.
 
 ## Roles
-- **Fable (one session, Cam's laptop):** platform stream, merge coordination, deploy verification via Radar MCP, final README. No feature work.
-- **Opus:** stream A features and stream D.
-- **Sonnet:** stream B components, tests, small fixes.
-- **Cam:** stream A, merges A/C/D, Elastic, cluster.
-- **Jake:** stream B, merges B, design, demo visuals, pitch deck.
+- **Fable orchestrator (one per side):** architecture and the contract, task briefs, merges for its side, deploy verification via Radar MCP (backend), Board posts. Writes scaffolding and docs; hands feature code to subagents.
+- **Opus subagents:** feature work, one brief each, in a worktree.
+- **Cam:** backend side. Elastic, cluster, credentials, architecture and the chaos moment in the pitch.
+- **Jake:** frontend side. Design, demo visuals, pitch deck, problem/product in the pitch.
