@@ -1,12 +1,12 @@
-import type { CaptureStatus, ItemDoc, RawDoc, SearchHit, TaskDoc } from '@hh/shared'
-import { type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CaptureStatus, ItemDoc, ItemVerdict, RawDoc, SearchHit, TaskDoc } from '@hh/shared'
+import { type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
 import '@fontsource/bricolage-grotesque/800.css'
 import './ade.css'
 import type { RunState } from './data'
 import { armAudio, playChime, setSound, soundOn } from './chime'
-import { addNote, agentName, ago, clock, formatMs, type Identity, isAgent, type Live, loadIdentity, newlyDone, saveIdentity, searchBrain, sortTasks, threadFor, useLive } from './live'
+import { addNote, agentName, ago, clock, decisionLogUrl, formatMs, type Identity, isAgent, itemNewer, type Live, loadIdentity, newlyDone, pct, pendingCaptures, saveIdentity, searchBrain, setVerdict, sortTasks, threadFor, useLive } from './live'
 import { Mark, type MarkMode, ThemeCtx } from './Mark'
 import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, useTheme } from './parts'
 import { Guide, guideSeen, HelpIcon } from './Guide'
@@ -21,6 +21,9 @@ const FEED = 'feed'
 const TASK_STATE: Record<TaskDoc['status'], RunState> = { proposed: 'needs_input', claimed: 'running', done: 'done', released: 'cancelled' }
 const TASK_LABEL: Record<TaskDoc['status'], string> = { proposed: 'Proposed', claimed: 'Working', done: 'Done', released: 'Released' }
 const TASK_MARK: Record<TaskDoc['status'], MarkMode> = { proposed: 'waiting', claimed: 'working', done: 'still', released: 'idle' }
+// What the chaos switch does, from the API (chaos-routes.ts and the ChaosState contract).
+const CHAOS_TEXT = 'CHAOS on: indexing waits 3 s and fails 20% of the time'
+const LATEST_MAX = 40
 const CAPTURE_LABEL: Record<CaptureStatus['state'], string> = {
   queued: 'queued',
   transcribing: 'transcribing',
@@ -180,6 +183,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
     { label: sound ? 'Turn sound off' : 'Turn sound on', run: toggleSound },
     { label: 'Search the brain', hint: '/', run: () => show('brain') },
     { label: 'Show claimed files', run: () => show('files') },
+    { label: 'Open the decision log', hint: 'markdown', run: () => window.open(decisionLogUrl(id.team), '_blank', 'noopener') },
     { label: 'Team feed', run: () => select(FEED) },
     { label: theme === 'dark' ? 'Switch to light' : 'Switch to dark', run: flip },
     { label: 'Open the setup guide', run: () => setGuide(true) },
@@ -188,6 +192,8 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
   ]
 
   const people = Object.entries(live.stats?.by_who ?? {}).sort((a, b) => b[1] - a[1])
+  const shown = active ? [active] : open
+  const fileCount = shown.reduce((n, t) => n + t.paths.length, 0)
 
   return (
     <div className="ade" data-side={side} style={{ '--w-left': `${widths.left}px`, '--w-right': `${widths.right}px` } as CSSProperties}>
@@ -203,6 +209,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
           <kbd>⌘K</kbd>
         </button>
         <FreezeClock />
+        {live.stats?.chaos && <span className="chaos-tag" title={CHAOS_TEXT}>CHAOS</span>}
         <Talk id={id} onOutgoing={track} />
         <button type="button" className="icon" aria-label="Sound" aria-pressed={sound} title={sound ? 'Sound on' : 'Sound off'} onClick={toggleSound}>
           <SoundIcon on={sound} />
@@ -278,12 +285,12 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
           ) : (
             <>
               <span className="t-title">Team feed</span>
-              <span>captures <b>{live.stats?.raw_total ?? 0}</b></span>
+              <span>entries <b>{live.stats?.raw_total ?? 0}</b></span>
               <span>items <b>{live.stats?.items_total ?? 0}</b></span>
             </>
           )}
         </div>
-        <Thread live={live} task={active} id={id} outgoing={outgoing} />
+        <Thread live={live} task={active} id={id} outgoing={outgoing} now={now} onSignOut={onSignOut} />
         <NoteBox id={id} />
         <BottomPanel live={live} now={now} onSelect={select} />
       </main>
@@ -297,17 +304,18 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
           </button>
           <button type="button" role="tab" aria-selected={tab === 'files'} onClick={() => setTab('files')}>
             Files
-            {open.length > 0 && <span className="count">{open.reduce((n, t) => n + t.paths.length, 0)}</span>}
+            {fileCount > 0 && <span className="count">{fileCount}</span>}
           </button>
         </div>
         <div className="right-body">
-          {tab === 'brain' ? <Brain live={live} team={id.team} task={active} /> : <Files tasks={active ? [active] : open} />}
+          {tab === 'brain' ? <Brain live={live} id={id} task={active} /> : <Files tasks={shown} />}
         </div>
       </aside>
 
       <footer className="sb">
         <span><b>{id.team}</b></span>
-        <span className="extra">{live.stats?.raw_total ?? 0} captures</span>
+        {live.stats?.chaos && <span className="bad sb-chaos" role="status" title={CHAOS_TEXT}>{CHAOS_TEXT}</span>}
+        <span className="extra">{live.stats?.raw_total ?? 0} entries</span>
         <span className="extra">{live.stats?.items_total ?? 0} items</span>
         <span>{live.stats?.open_tasks ?? 0} open tasks</span>
         <span className="sb-done" role="status">{finished}</span>
@@ -351,19 +359,32 @@ function Entry({ doc }: { doc: RawDoc }) {
   )
 }
 
-function Thread({ live, task, id, outgoing }: { live: Live; task: TaskDoc | undefined; id: Identity; outgoing: Outgoing[] }) {
+type ThreadProps = { live: Live; task: TaskDoc | undefined; id: Identity; outgoing: Outgoing[]; now: number; onSignOut: () => void }
+
+function Thread({ live, task, id, outgoing, now, onSignOut }: ThreadProps) {
   const box = useRef<HTMLDivElement>(null)
+  // Follow new entries only while the reader is at the bottom; never yank someone reading back.
+  const atBottom = useRef(true)
+  const shownTask = useRef<string | undefined>(undefined)
+  const shownBox = useRef<HTMLDivElement | null>(null)
   const docs = useMemo(() => (task ? threadFor(task, live.docs) : [...live.docs].reverse()), [task, live.docs])
-  const pending = live.captures.filter((c) => c.state !== 'indexed')
+  const pending = pendingCaptures(live.captures, now)
   const sending = outgoing.filter((o) => !live.captures.some((c) => c.capture_id === o.capture_id))
   const [openPaths, setOpenPaths] = useState(true)
   const count = docs.length + pending.length + sending.length
+  const lastId = docs.at(-1)?.id
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when the selection or the number of entries changes
-  useEffect(() => {
+  // Layout effect: scroll before paint, so a scroll event from the new height cannot mark the reader as away first.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when the selection, the entry count or the newest entry changes (the list is capped, so the count alone stops moving)
+  useLayoutEffect(() => {
     const el = box.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [task?.id, count])
+    if (!el) return
+    // A new selection, or a fresh list after the loading or empty state, starts at the bottom.
+    const switched = shownTask.current !== task?.id || shownBox.current !== el
+    shownTask.current = task?.id
+    shownBox.current = el
+    if (switched || atBottom.current) el.scrollTop = el.scrollHeight
+  }, [task?.id, count, lastId, live.status])
 
   if (live.status === 'loading') return <div className="transcript empty"><p className="dim" role="status">Loading the team brain…</p></div>
   if (live.status === 'error')
@@ -379,11 +400,19 @@ function Thread({ live, task, id, outgoing }: { live: Live; task: TaskDoc | unde
       <div className="transcript empty">
         <p>The brain is empty for team {id.team}.</p>
         <p className="dim">Hold Talk, or write a note below. It shows up here the moment it is searchable.</p>
+        <button type="button" className="btn" onClick={onSignOut}>Use a different team code</button>
       </div>
     )
 
   return (
-    <div className="transcript" ref={box}>
+    <div
+      className="transcript"
+      ref={box}
+      onScroll={(e) => {
+        const el = e.currentTarget
+        atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+      }}
+    >
       <div className="col">
         {task && (
           <div className="ev call">
@@ -462,7 +491,7 @@ function NoteBox({ id }: { id: Identity }) {
           />
           <div className="box-foot">
             <span className="hints">
-              <kbd>⏎</kbd> save <kbd>⇧⏎</kbd> new line <kbd>/</kbd> brain
+              <kbd>⏎</kbd> save <kbd>⇧⏎</kbd> new line
             </span>
             <span className="grow" />
             {state.sent && !text && <span role="status">Saved as {id.who}</span>}
@@ -569,27 +598,67 @@ function BottomPanel({ live, now, onSelect }: { live: Live; now: number; onSelec
 
 // ---------- right pane ----------
 
-function ItemRow({ kind, who, source, at, text, prov, used }: { kind: string; who: string; source?: string; at: string; text: string; prov?: string; used?: boolean }) {
+type ItemRowProps = { kind: string; who: string; source?: string; at: string; text: string; prov?: string; used?: boolean; rejected?: boolean; children?: ReactNode }
+
+function ItemRow({ kind, who, source, at, text, prov, used, rejected, children }: ItemRowProps) {
   return (
-    <article className={used ? 'item used' : 'item'}>
+    <article className={['item', used && 'used', rejected && 'rejected'].filter(Boolean).join(' ')}>
       <div className="k">
         <span className={kind === 'blocker' ? 'kind blk' : 'kind'}>{kind}</span>· {agentName(who)}
         {source ? ` · ${source}` : ''} · {clock(at)}
       </div>
       <p>{text}</p>
       {prov && <span className="prov">{prov}</span>}
+      {children}
     </article>
   )
 }
 
-const itemRow = (i: ItemDoc, used?: boolean) => (
-  <ItemRow key={i.id} kind={i.kind} who={i.who} at={i.at} text={i.text} used={used} prov={i.raw_ids.length ? `from ${i.raw_ids.length} ${i.raw_ids.length === 1 ? 'capture' : 'captures'}` : undefined} />
-)
+/** A librarian item with its grade: confidence, the human verdict, or Confirm / Reject. */
+function ItemCard({ item, id, used }: { item: ItemDoc; id: Identity; used?: boolean }) {
+  const [mine, setMine] = useState<ItemDoc>()
+  const [state, setState] = useState<{ busy?: ItemVerdict; error?: string }>({})
+  // Search hits are a snapshot, so keep our own answer unless the prop has caught up or moved on.
+  const cur = mine && itemNewer(mine, item) ? mine : item
+  const judge = async (verdict: ItemVerdict) => {
+    setState({ busy: verdict })
+    try {
+      setMine(await setVerdict(id, item.id, verdict))
+      setState({})
+    } catch (e) {
+      console.error(`marking item ${item.id} ${verdict} failed`, e)
+      setState({ error: e instanceof Error ? e.message : 'The verdict was not saved.' })
+    }
+  }
+  const n = cur.raw_ids.length
+  return (
+    <ItemRow kind={cur.kind} who={cur.who} at={cur.at} text={cur.text} used={used} rejected={cur.verdict === 'rejected'} prov={n ? `from ${n} ${n === 1 ? 'quote' : 'quotes'}` : undefined}>
+      <div className="grade">
+        {cur.confidence !== undefined && <span title="How directly the quoted words support this, by the librarian's own score">{pct(cur.confidence)} sure</span>}
+        {cur.verdict ? (
+          <span className={cur.verdict === 'rejected' ? 'bad' : undefined}>
+            {cur.verdict}
+            {cur.verified_by ? ` by ${agentName(cur.verified_by)}` : ''}
+          </span>
+        ) : (
+          <>
+            <span className="grow" />
+            <button type="button" className="text-btn" disabled={!!state.busy} onClick={() => void judge('confirmed')}>{state.busy === 'confirmed' ? 'Confirming…' : 'Confirm'}</button>
+            <button type="button" className="text-btn" disabled={!!state.busy} onClick={() => void judge('rejected')}>{state.busy === 'rejected' ? 'Rejecting…' : 'Reject'}</button>
+          </>
+        )}
+      </div>
+      {state.error && <span className="prov bad" role="alert">Not saved: {state.error}</span>}
+    </ItemRow>
+  )
+}
+
 const rawRow = (d: RawDoc, used?: boolean) => (
   <ItemRow key={d.id} kind={d.type} who={d.who} at={d.at} text={d.text} used={used} prov={d.source_ref} />
 )
 
-function Brain({ live, team, task }: { live: Live; team: string; task: TaskDoc | undefined }) {
+function Brain({ live, id, task }: { live: Live; id: Identity; task: TaskDoc | undefined }) {
+  const team = id.team
   const [q, setQ] = useState('')
   const [found, setFound] = useState<{ q: string; hits: SearchHit[]; mode: string; ms: number } | { q: string; error: string } | null>(null)
 
@@ -632,7 +701,7 @@ function Brain({ live, team, task }: { live: Live; team: string; task: TaskDoc |
           {searching && <p className="pane-empty" role="status">Searching…</p>}
           {found && 'error' in found && <p className="pane-empty bad" role="alert">Search failed: {found.error}</p>}
           {found && 'hits' in found && !searching && !found.hits.length && <p className="pane-empty">Nothing in the brain matches “{found.q}”.</p>}
-          {found && 'hits' in found && found.hits.map((h) => (h.layer === 'item' ? itemRow(h.doc) : rawRow(h.doc)))}
+          {found && 'hits' in found && found.hits.map((h) => (h.layer === 'item' ? <ItemCard key={h.doc.id} item={h.doc} id={id} /> : rawRow(h.doc)))}
         </>
       ) : (
         <>
@@ -648,15 +717,18 @@ function Brain({ live, team, task }: { live: Live; team: string; task: TaskDoc |
           )}
           <div className="sec">
             <span>DECISIONS AND ITEMS</span>
-            <span>{live.items.length}</span>
+            <span>
+              {live.items.length} ·{' '}
+              <a className="sec-link" href={decisionLogUrl(team)} target="_blank" rel="noopener">decision log</a>
+            </span>
           </div>
-          {live.items.map((i) => itemRow(i))}
+          {live.items.map((i) => <ItemCard key={i.id} item={i} id={id} />)}
           {live.status === 'ready' && !live.items.length && <p className="pane-empty">No items yet. The librarian extracts decisions, todos and questions from captures.</p>}
           <div className="sec">
             <span>LATEST</span>
-            <span>{live.docs.length}</span>
+            <span>{live.docs.length > LATEST_MAX ? `${LATEST_MAX} of ${live.docs.length}` : live.docs.length}</span>
           </div>
-          {live.docs.slice(0, 40).map((d) => rawRow(d))}
+          {live.docs.slice(0, LATEST_MAX).map((d) => rawRow(d))}
           {live.status === 'ready' && !live.docs.length && <p className="pane-empty">Nothing captured yet.</p>}
         </>
       )}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RunState } from './data'
 import { Mark } from './Mark'
 
@@ -53,7 +53,8 @@ export function FreezeClock() {
     return () => window.clearInterval(t)
   }, [])
   const s = Math.floor((new Date(FREEZE_AT).getTime() - now) / 1000)
-  if (s <= 0) return <span className="crumb mono">frozen</span>
+  // Past the freeze the countdown has nothing to say.
+  if (s <= 0) return null
   const pad = (n: number) => String(n).padStart(2, '0')
   return (
     <span className="crumb mono">
@@ -70,8 +71,8 @@ function initialTheme(): Theme {
   try {
     const saved = localStorage.getItem('jam-theme')
     if (saved === 'light' || saved === 'dark') return saved
-  } catch {
-    // Storage can be blocked; fall through to the system setting.
+  } catch (e) {
+    console.warn('reading jam-theme from localStorage failed; using the system setting', e)
   }
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
@@ -82,8 +83,8 @@ export function useTheme(): { theme: Theme; flip: () => void } {
     document.documentElement.dataset.theme = theme
     try {
       localStorage.setItem('jam-theme', theme)
-    } catch {
-      // Storage can be blocked; the theme still applies for this visit.
+    } catch (e) {
+      console.warn('saving jam-theme to localStorage failed; the theme applies for this visit only', e)
     }
   }, [theme])
   const flip = useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), [])
@@ -137,7 +138,16 @@ export type Command = { id?: string; label: string; hint?: string; agent?: strin
 export function Palette({ commands, onClose }: { commands: Command[]; onClose: () => void }) {
   const [q, setQ] = useState('')
   const [i, setI] = useState(0)
+  const listRef = useRef<HTMLUListElement>(null)
+  const byKey = useRef(false)
   const list = commands.filter((c) => c.label.toLowerCase().includes(q.toLowerCase()))
+  // Arrow keys can move past the visible rows; keep the active one in view (hover never scrolls).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the active row changes
+  useEffect(() => {
+    if (!byKey.current) return
+    byKey.current = false
+    listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [i])
   const go = (c?: Command) => {
     if (!c) return
     onClose()
@@ -168,16 +178,18 @@ export function Palette({ commands, onClose }: { commands: Command[]; onClose: (
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') {
               e.preventDefault()
+              byKey.current = true
               setI(Math.min(list.length - 1, i + 1))
             }
             if (e.key === 'ArrowUp') {
               e.preventDefault()
+              byKey.current = true
               setI(Math.max(0, i - 1))
             }
             if (e.key === 'Enter') go(list[i])
           }}
         />
-        <ul>
+        <ul ref={listRef}>
           {list.map((c, n) => (
             <li key={c.id ?? c.label}>
               <button type="button" data-active={n === i} onPointerEnter={() => setI(n)} onClick={() => go(c)}>
