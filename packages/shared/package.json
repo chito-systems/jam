@@ -1,0 +1,10 @@
+{
+  "name": "@hh/shared",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@elastic/elasticsearch": "^9.5.1",
+    "zod": "^4.6.7"
+  }
+}

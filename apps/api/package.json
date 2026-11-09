@@ -1,0 +1,13 @@
+{
+  "name": "@hh/api",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "tsx watch --env-file-if-exists=../../.env src/main.ts", "start": "tsx src/main.ts" },
+  "dependencies": {
+    "@hh/mcp": "workspace:*",
+    "@hh/shared": "workspace:*",
+    "@hh/worker": "workspace:*",
+    "@hono/node-server": "^2.1.6",
+    "hono": "^4.13.17"
+  }
+}

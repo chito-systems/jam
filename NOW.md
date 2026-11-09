@@ -1,6 +1,6 @@
 # NOW.md — one screen, always current
 
-Agents: read on start. Humans: update when something changes. Live status lives on the Board (Issue #1); this file is the pitch, the decisions, and the clock.
+Agents: read on start. Humans: update when something changes. Live status lives on the Board (Issue #2); this file is the pitch, the decisions, and the clock.
 
 ## Pitch (one sentence)
 Hack Harness is an open-source Agent Development Environment for hackathon teams: one shared context brain, one safe merge path for humans and agents, one focus-first interface.
@@ -15,6 +15,8 @@ Capture what the team says, make it searchable in under 10 seconds, give every a
 - Merge path: PRs → Gitar → CI → GitHub merge queue on `main`
 - Deploy: Radar cluster, Argo CD from `main`, GHCR images, namespace `team-___`
 - Observability: OTel → Dash0, SLO "transcript searchable < 10 s p95", chaos flag on indexer
+- Contract: `packages/shared/src/types.ts`. API under `/api/*`, MCP at `/mcp`. `STORE=memory` runs the API with no credentials.
+- Sides: backend = Cam (streams A, C, D), frontend = Jake (stream B). One Fable orchestrator per side merges. See AGENTS.md.
 - Stack: TS monorepo — apps/web (Vite+React), apps/api (Hono), apps/worker, packages/mcp, packages/shared
 - IP: owned jointly by Cam and Jake, 50/50. Agreed ___ (time)
 
@@ -28,13 +30,13 @@ Capture what the team says, make it searchable in under 10 seconds, give every a
 - [ ] 5:15 — submitted
 
 ## Links
-- Repo: ___
+- Repo: https://github.com/chito-systems/jam
 - Live app: https://___.cnh.radarhq.io
 - Elastic Cloud: ___
 - Dash0: ___
 - Radar Cloud: ___
 - Gitar: ___
-- Board: Issue #1
+- Board: Issue #2
 
 ## Credits at kickoff
 - Cam Claude: ___   Jake Claude: ___   OpenAI codes: Cam ___ Jake ___
