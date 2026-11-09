@@ -1,4 +1,4 @@
-import { type CaptureStatus, type FeedEvent, type ItemDoc, MemoryStore, type RawDoc } from "@hh/shared";
+import { type CaptureStatus, type FeedEvent, type ItemDoc, MemoryStore, type RawDoc, setItemVerdict } from "@hh/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInlineDispatcher } from "./dispatcher";
 import { createLibrarianFromEnv, type Librarian, type ModelItem, mapItems, OpenAILibrarian } from "./librarian";
@@ -84,6 +84,18 @@ describe("mapItems", () => {
       input,
     );
     expect(items.map((i) => i.text)).toEqual(["The team will use Elasticsearch."]);
+  });
+
+  it("compares non-ASCII text by its letters, not as empty strings", () => {
+    const recent = [{ ...old, text: "Команда использует Postgres." }];
+    const items = mapItems(
+      [m({ text: "Мы выбрали Elasticsearch." }), m({ text: "café au lait" }), m({ text: "ＣＯＭＡＮＤＡ" })],
+      { ...input, recent: [...recent, { ...old, id: "o2", text: "cafe au lait" }, { ...old, id: "o3", text: "comanda" }] },
+    );
+    // Different Cyrillic sentence and an accented variant survive; full-width is the same word after NFKC.
+    expect(items.map((i) => i.text)).toEqual(["Мы выбрали Elasticsearch.", "café au lait"]);
+    const dupe = mapItems([m({ text: "команда использует POSTGRES" })], { ...input, recent });
+    expect(dupe).toEqual([]);
   });
 
   it("never overwrites a human verdict when superseding or closing an existing item", () => {
@@ -192,6 +204,28 @@ describe("dispatcher + librarian", () => {
     await vi.waitFor(() => expect(events.some((e) => e.event === "item")).toBe(true));
     expect(calls[0]?.stateAtCall).toBe("indexed");
     expect(await store.items({ team_id: "t1", limit: 10 })).toHaveLength(1);
+  });
+
+  it("keeps a verdict a human set while the model was thinking, and shows the model 50 recent items", async () => {
+    let seen = 0;
+    const { store, d, events } = setup(async ({ recent }) => {
+      seen = recent.length;
+      const stale = recent.find((i) => i.id === "old-1");
+      if (!stale) throw new Error("old-1 not in recent");
+      // The human clicks "confirm" mid-call; the model then returns its stale snapshot.
+      await setItemVerdict(store, { team_id: "t1", id: "old-1", who: "jake", verdict: "confirmed" });
+      return [{ ...stale, status: "superseded" }];
+    });
+    await store.indexItems([
+      { ...old, at: "2026-11-09T20:00:00.000Z" },
+      ...Array.from({ length: 60 }, (_, n) => ({ ...old, id: `filler-${n}`, at: "2026-11-09T17:00:00.000Z" })),
+    ]);
+    await d.dispatch(job());
+    await vi.waitFor(() => expect(events.some((e) => e.event === "item")).toBe(true));
+    expect(seen).toBe(50);
+    const stored = await store.itemById("t1", "old-1");
+    expect(stored).toMatchObject({ status: "superseded", verdict: "confirmed", verified_by: "jake" });
+    expect(events.find((e) => e.event === "item")?.data).toEqual(stored);
   });
 
   it("a librarian failure leaves the capture indexed and logs once", async () => {

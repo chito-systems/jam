@@ -136,7 +136,13 @@ export function parseModelOutput(content: string): ModelItem[] {
   });
 }
 
-const sameText = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+/** Unicode-aware: case, width and punctuation differences vanish; letters in any script stay. */
+const sameText = (s: string) =>
+  s
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, " ") // \p{M}: keep combining marks (Devanagari vowel signs etc.)
+    .trim();
 
 /**
  * Turns model output into valid ItemDocs. Drops unknown raw_ids, items left without provenance,

@@ -9,6 +9,8 @@ export interface DispatcherDeps extends PipelineDeps {
 
 const MAX_STATUSES = 500;
 const MAX_CONCURRENT = 2;
+/** Existing items the librarian sees, so it can supersede them and not repeat them. */
+export const RECENT_ITEMS = 50;
 
 type Listener = (event: FeedEvent) => void;
 
@@ -51,9 +53,21 @@ export function createInlineDispatcher(deps: DispatcherDeps): Dispatcher {
 
   const librarian = async (job: IngestJob, docs: RawDoc[], lib: Librarian) => {
     try {
-      const recent = await deps.store.items({ team_id: job.team_id, limit: 20 });
-      const items = await lib.extract({ team_id: job.team_id, docs, recent });
-      if (items.length === 0) return;
+      const recent = await deps.store.items({ team_id: job.team_id, limit: RECENT_ITEMS });
+      const known = new Set(recent.map((i) => i.id));
+      const extracted = await lib.extract({ team_id: job.team_id, docs, recent });
+      if (extracted.length === 0) return;
+      // A human may have graded an item while the model was thinking: re-read before writing back.
+      const items = await Promise.all(
+        extracted.map(async (item) => {
+          if (!known.has(item.id)) return item;
+          const fresh = await deps.store.itemById(job.team_id, item.id);
+          if (!fresh) return item;
+          const { verdict: _v, verified_by: _b, verified_at: _a, ...rest } = item;
+          const { verdict, verified_by, verified_at } = fresh;
+          return { ...rest, ...(verdict ? { verdict, verified_by, verified_at } : {}) };
+        }),
+      );
       await deps.store.indexItems(items);
       for (const item of items) emit(job.team_id, { event: "item", data: item });
     } catch (err) {
