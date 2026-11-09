@@ -14,6 +14,7 @@ export const ROUTES = {
   tasks: "/api/tasks", // GET ?TasksParams -> TasksResponse · POST TaskClaimRequest -> 201 TaskDoc | 409 TaskConflict
   taskClose: "/api/tasks/:id/close", // POST TaskCloseRequest -> TaskDoc
   stats: "/api/stats", // GET ?team_id= -> StatsResponse (the dashboard's numbers)
+  decisionsMd: "/api/decisions.md", // GET ?team_id= -> text/markdown: the decision log, each entry quoting the raw chunks it came from
   mcp: "/mcp", // MCP streamable HTTP: /mcp?team_id=<code>&who=<agent name>&side=<backend|frontend>
   healthz: "/healthz",
   readyz: "/readyz",
