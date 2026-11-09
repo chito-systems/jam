@@ -4,7 +4,7 @@ Rules for every coding agent and human in this repo. Read order: this file → P
 
 ## Context
 - Cloud Native Hackathon, Salt Lake City, 2026-11-09. Submission deadline **5:30 PM MT**. Freeze at 4:30.
-- We are building Hack Harness, an Agent Development Environment for hackathon teams: shared context brain (Elasticsearch), safe merging for humans + agents (Gitar + merge queue), focus-first interface. PROJECT.md has the architecture; SPEC.md has the pitch.
+- We are building Hack Harness, an Agent Development Environment for hackathon teams: shared context brain (Elasticsearch), safe merging for humans + agents (PR → Gitar → CI → merge; no merge queue on a personally-owned repo). Live at https://jam.cnh.radarhq.io, focus-first interface. PROJECT.md has the architecture; SPEC.md has the pitch.
 - We use this product to build itself. From the moment `/capture` works, team conversations go into the brain and agents read it via the `context` MCP server.
 - Judges read the repo. Write PRs you'd be proud to explain out loud.
 
@@ -33,7 +33,7 @@ git worktree add ../wt/<name> -b <feat|fix|infra>/<stream-letter>-<short-name> o
 git push -u origin HEAD
 gh pr create --fill --label stream:<X>
 # Gitar reviews. Address every comment or reply with why not.
-gh pr merge --auto --squash          # lands via merge queue when Gitar + CI are green
+gh pr merge --auto --squash          # lands when Gitar + CI are green
 gh issue comment 2 --body "<Stream>: <what landed> in #<pr>. Next: <thing>. Blocked: <none|what>"
 ```
 - One feature per PR, **under 300 lines of diff**. Bigger → split.
@@ -70,7 +70,8 @@ Add once per laptop: `claude mcp add hack-harness-context --scope user --transpo
 Before starting a task, call `context_recent` and `context_decisions`. When you make a non-obvious choice, call `context_add` with one sentence. When unsure what the humans meant, `context_search` before asking.
 
 ## Roles
-- **Fable orchestrator (one per side):** architecture and the contract, task briefs, merges for its side, deploy verification via Radar MCP (backend), Board posts. Writes scaffolding and docs; hands feature code to subagents.
+The humans decide; the agents implement inside those decisions.
+- **Cam and Jake:** chose the problem, the product and its pillars, every sponsor tool and its role, and the architecture decisions in PROJECT.md; split the work into two sides; direct every feature. Cam owns the backend side (Elastic, cluster, credentials); Jake owns the frontend side (design, demo visuals, pitch deck).
+- **Fable orchestrator (one per side):** turns the humans' direction into the detailed design (contract types, module boundaries, prompts) and task briefs, merges for its side, verifies deploys, posts to the Board. Writes scaffolding and docs; hands feature code to subagents.
 - **Opus subagents:** feature work, one brief each, in a worktree.
-- **Cam:** backend side. Elastic, cluster, credentials, architecture and the chaos moment in the pitch.
-- **Jake:** frontend side. Design, demo visuals, pitch deck, problem/product in the pitch.
+- **Gitar:** reviews every pull request against `.gitar/review/instructions.md`.
