@@ -14,7 +14,4 @@ export function createInlineDispatcher(_deps: PipelineDeps): Dispatcher {
   throw new Error("worker pipeline not implemented yet");
 }
 
-/** Picks a transcriber from env (TRANSCRIBER, OPENAI_API_KEY). Undefined if not configured. */
-export function createTranscriberFromEnv(_env: NodeJS.ProcessEnv): Transcriber | undefined {
-  return undefined;
-}
+export { createTranscriberFromEnv } from "./transcribers";
