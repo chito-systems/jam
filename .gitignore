@@ -13,3 +13,6 @@ __pycache__/
 .data/
 .claude/worktrees/
 *.tsbuildinfo
+desktop/node_modules/
+desktop/out/
+desktop/dist/
