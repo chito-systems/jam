@@ -29,7 +29,8 @@ function palette(el: Element, dark: boolean): ITheme {
   }
 }
 
-export function Terminal({ visible }: { visible: boolean }) {
+/** `run` is typed into the shell once, ~600 ms after the first connect, so the prompt is ready. */
+export function Terminal({ visible, run }: { visible: boolean; run?: string }) {
   const theme = useContext(ThemeCtx)
   const host = useRef<HTMLDivElement>(null)
   const term = useRef<{ x: XTerm; fit: FitAddon } | null>(null)
@@ -37,6 +38,8 @@ export function Terminal({ visible }: { visible: boolean }) {
   const [ready, setReady] = useState(false)
   const [state, setState] = useState<State>('connecting')
   const [attempt, setAttempt] = useState(0)
+  const ran = useRef(false)
+  const runRef = useRef(run)
 
   useEffect(() => {
     let gone = false
@@ -91,6 +94,13 @@ export function Terminal({ visible }: { visible: boolean }) {
       t.fit.fit()
       s.send(encodeResize(t.x.cols, t.x.rows))
       t.x.focus()
+      const cmd = runRef.current
+      if (cmd && !ran.current) {
+        ran.current = true
+        window.setTimeout(() => {
+          if (s.readyState === WebSocket.OPEN) s.send(encodeInput(`${cmd}\r`))
+        }, 600)
+      }
     }
     s.onmessage = (m) => t.x.write(typeof m.data === 'string' ? m.data : new Uint8Array(m.data as ArrayBuffer))
     s.onclose = (e) => {
