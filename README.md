@@ -97,7 +97,15 @@ Capture is voice-first: no typing, no account, works one-handed on a phone, and 
 - **The scaffold sat in a subfolder**, so CI and review rules did nothing until it was moved to the repository root (#1).
 
 ## Run it as a desktop app
-Needs Docker. No clone, no Node:
+The native app (`desktop/`, Electron) is a thin shell around the hosted JAM: its own Dock icon and window, the microphone allowed for JAM only, and the terminal bridge started for you when it runs from a clone. The UI updates with every deploy; `Cmd+R` picks it up, no reinstall.
+```bash
+cd desktop && npm install && npm start            # run it
+npm run package && open out/JAM-darwin-arm64/JAM.app   # or build JAM.app (Apple Silicon)
+JAM_URL=http://localhost:3000 npm start           # point it at a local server
+```
+The first launch asks for microphone access; click Allow. `desktop/` has its own npm lockfile and sits outside the pnpm workspace.
+
+No install at all: the Docker launcher runs the whole of JAM locally. Needs Docker. No clone, no Node:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/chito-systems/jam/main/scripts/jam-desktop.sh | bash
 ```
