@@ -8,7 +8,7 @@ import './terminal.css'
 // A real shell on the user's own computer, through the local bridge (apps/web/bridge).
 // xterm loads on first open so it stays out of the main bundle.
 
-type State = 'connecting' | 'open' | 'missing' | 'closed'
+type State = 'connecting' | 'open' | 'missing' | 'closed' | 'broken'
 const BRIDGE_URL = `ws://127.0.0.1:${BRIDGE_PORT}`
 const COMMAND = 'pnpm --filter @hh/web bridge'
 
@@ -61,7 +61,10 @@ export function Terminal({ visible }: { visible: boolean }) {
         ro.observe(el)
         setReady(true)
       },
-      (e: unknown) => console.error('loading the terminal failed', e),
+      (e: unknown) => {
+        console.error('loading the terminal failed', e)
+        if (!gone) setState('broken')
+      },
     )
     return () => {
       gone = true
@@ -127,6 +130,11 @@ export function Terminal({ visible }: { visible: boolean }) {
           <code>{COMMAND}</code>
           <p>It opens a shell on this computer only; nothing is sent to the JAM server.</p>
           <button type="button" className="btn" onClick={retry}>Retry</button>
+        </div>
+      )}
+      {state === 'broken' && (
+        <div className="term-note" role="alert">
+          <p>The terminal could not load. Reload the page to try again.</p>
         </div>
       )}
       {state === 'closed' && (
