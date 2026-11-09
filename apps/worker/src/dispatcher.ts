@@ -1,17 +1,27 @@
-import type { CaptureStatus, Dispatcher, FeedEvent, IngestJob } from "@hh/shared";
+import type { CaptureStatus, Dispatcher, FeedEvent, IngestJob, RawDoc } from "@hh/shared";
+import type { Librarian } from "./librarian";
 import { type PipelineDeps, PipelineError, runPipeline } from "./pipeline";
+
+export interface DispatcherDeps extends PipelineDeps {
+  /** Absent = no structured items. Runs after a capture is indexed, never on the SLO path. */
+  librarian?: Librarian;
+}
 
 const MAX_STATUSES = 500;
 const MAX_CONCURRENT = 2;
 
 type Listener = (event: FeedEvent) => void;
 
-/** Runs the pipeline in this process: at most 2 captures at a time, the rest queued in order. */
-export function createInlineDispatcher(deps: PipelineDeps): Dispatcher {
+/**
+ * Runs the pipeline in this process: at most 2 captures at a time, the rest queued in order.
+ * After a capture is indexed, the librarian (if any) runs one call at a time in the background.
+ */
+export function createInlineDispatcher(deps: DispatcherDeps): Dispatcher {
   const statuses = new Map<string, CaptureStatus>();
   const listeners = new Map<string, Set<Listener>>();
   const queue: IngestJob[] = [];
   let running = 0;
+  let librarianChain: Promise<void> = Promise.resolve();
 
   const emit = (team_id: string, event: FeedEvent) => {
     for (const listener of listeners.get(team_id) ?? []) {
@@ -39,6 +49,29 @@ export function createInlineDispatcher(deps: PipelineDeps): Dispatcher {
     if (current) save({ ...current, ...patch });
   };
 
+  const librarian = async (job: IngestJob, docs: RawDoc[], lib: Librarian) => {
+    try {
+      const recent = await deps.store.items({ team_id: job.team_id, limit: 20 });
+      const items = await lib.extract({ team_id: job.team_id, docs, recent });
+      if (items.length === 0) return;
+      await deps.store.indexItems(items);
+      for (const item of items) emit(job.team_id, { event: "item", data: item });
+    } catch (err) {
+      console.error("librarian failed", {
+        capture_id: job.capture_id,
+        team_id: job.team_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
+  /** Fire and forget, serialized: a burst of captures queues instead of fanning out. */
+  const enqueueLibrarian = (job: IngestJob, docs: RawDoc[]) => {
+    const lib = deps.librarian;
+    if (!lib || docs.length === 0 || job.source_ref?.startsWith("task:")) return;
+    librarianChain = librarianChain.then(() => librarian(job, docs, lib));
+  };
+
   const run = async (job: IngestJob) => {
     try {
       const docs = await runPipeline(job, deps, (state) => update(job.capture_id, { state }));
@@ -50,6 +83,7 @@ export function createInlineDispatcher(deps: PipelineDeps): Dispatcher {
         searchable_at: searchable.toISOString(),
         ms_to_searchable: searchable.getTime() - Date.parse(job.received_at),
       });
+      enqueueLibrarian(job, docs);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const step = err instanceof PipelineError ? err.step : "unknown";
