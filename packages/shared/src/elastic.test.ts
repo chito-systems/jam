@@ -10,7 +10,7 @@ import {
   tasksMapping,
 } from "./elastic";
 import { MemoryStore } from "./store";
-import { type ItemDoc, type RawDoc, SearchParamsSchema, type TaskDoc } from "./types";
+import { type ItemDoc, type RawDoc, SearchParamsSchema, type TaskDoc, TaskDocSchema } from "./types";
 
 const raw: RawDoc = {
   team_id: "t1",
@@ -85,14 +85,16 @@ describe("mappings", () => {
     expect(m.properties?.side).toEqual({ type: "keyword" });
   });
 
-  it("maps tasks strictly: keywords, text title/note, dates", () => {
+  it("maps tasks strictly: keywords, text title/note/spec/reason, dates", () => {
     const m = tasksMapping();
     expect(m.dynamic).toBe("strict");
-    for (const f of ["team_id", "id", "side", "owner", "paths", "status", "pr"]) {
+    const keywords = ["team_id", "id", "side", "owner", "paths", "status", "pr"];
+    for (const f of [...keywords, "item_id", "raw_ids", "proposed_by", "suggested_owner"]) {
       expect(m.properties?.[f]).toEqual({ type: "keyword" });
     }
-    expect(m.properties?.title).toEqual({ type: "text" });
-    expect(m.properties?.note).toEqual({ type: "text" });
+    for (const f of ["title", "note", "spec", "reason"]) expect(m.properties?.[f]).toEqual({ type: "text" });
+    // dynamic: strict rejects any field the mapping lacks, so every TaskDoc field must be mapped.
+    expect(Object.keys(TaskDocSchema.shape).filter((f) => !m.properties?.[f])).toEqual([]);
     expect(m.properties?.created_at).toEqual({ type: "date" });
     expect(m.properties?.updated_at).toEqual({ type: "date" });
   });
