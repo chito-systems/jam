@@ -1,0 +1,136 @@
+/* Centre-pane tabs: Team feed plus one terminal per tab. Tokens from ade.css only. */
+
+.ade .ctabs {
+  flex: none;
+  display: flex;
+  height: 32px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  min-width: 0;
+}
+.ade .ctabs-scroll {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ade .ctab,
+.ade .ctab-x {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 100%;
+  padding: 0 14px;
+  color: var(--mute);
+  white-space: nowrap;
+  flex: none;
+}
+.ade .ctab:hover,
+.ade .ctab-x:hover {
+  color: var(--ink);
+}
+.ade .ctab[aria-selected="true"] {
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: inset 0 -2px 0 var(--ink);
+}
+.ade .ctabs-scroll > .ctab,
+.ade .ctab-wrap {
+  border-right: 1px solid var(--line);
+}
+.ade .ctab-wrap {
+  display: flex;
+  flex: none;
+}
+.ade .ctab-wrap .ctab {
+  padding-right: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.ade .ctab-x {
+  padding: 0 10px 0 4px;
+  font-size: 14px;
+}
+.ade .ctab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+.ade .ctab-sh {
+  color: var(--soft);
+}
+.ade .ctabs-add {
+  position: relative;
+  flex: none;
+}
+.ade .ctab-plus {
+  font: 16px var(--mono);
+  border-right: 1px solid var(--line);
+}
+.ade .ctab-plus:disabled {
+  color: var(--soft);
+  cursor: not-allowed;
+}
+.ade .ctabs-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+.ade .ctabs-menu > button {
+  display: flex;
+  white-space: nowrap;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  text-align: left;
+  color: var(--ink);
+}
+.ade .ctabs-menu > button:hover {
+  background: var(--panel);
+}
+.ade .ctabs-side {
+  display: flex;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  gap: 4px;
+  padding: 2px 2px 6px;
+  margin: 0 0 4px;
+}
+.ade .ctabs-side button {
+  flex: 1;
+  padding: 4px 8px;
+  font: 12px var(--mono);
+  color: var(--mute);
+  border: 1px solid var(--line);
+}
+.ade .ctabs-side button[aria-pressed="true"] {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+/* A terminal tab fills the pane; the feed stays mounted underneath, hidden. */
+.ade .center[data-term] > :not(.ctabs, .tstack, .panel) {
+  display: none;
+}
+.ade .tstack {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ade .tstack[hidden] {
+  display: none;
+}
+.ade .agent-term {
+  margin-top: 12px;
+}

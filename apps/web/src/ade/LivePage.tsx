@@ -14,6 +14,7 @@ import { orderFor, proposedOrders, setChaos, workTasks } from './orders'
 import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, useTheme } from './parts'
 import { type Outgoing, Talk } from './Talk'
 import { Terminal } from './Terminal'
+import { TabStrip, TermStack, useTermTabs } from './TermTabs'
 import { clampPanel, loadPanelHeight, savePanelHeight } from './term'
 import { OrderStrip, WorkOrder } from './WorkOrder'
 
@@ -146,10 +147,18 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
   const order = useMemo(() => [FEED, ...orders.map((t) => t.id), ...tasks.map((t) => t.id)], [orders, tasks])
   const [chaosAsk, setChaosAsk] = useState<ChaosAsk>(null)
 
+  const term = useTermTabs(id.who, id.team, live.agents)
+  const { show: showTab, focusAgent } = term
   const select = useCallback((next: string) => {
     setActiveId(next)
     setSide('none')
-  }, [])
+    showTab(null)
+  }, [showTab])
+  // An agent in the rail with an open terminal here goes to that tab; otherwise its detail view.
+  const pick = useCallback((next: string) => {
+    if (focusAgent(next)) setSide('none')
+    else select(next)
+  }, [focusAgent, select])
 
   const show = useCallback((t: RightTab) => {
     setTab(t)
@@ -318,13 +327,14 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
         {live.status === 'ready' && !tasks.length && !orders.length && (
           <p className="pane-empty">No task is claimed yet. An agent claims one with the task_claim tool, and it appears here.</p>
         )}
-        <Crew crew={crew} members={members} agents={live.agents} activeId={activeId} now={now} onSelect={select} />
+        <Crew crew={crew} members={members} agents={live.agents} activeId={activeId} now={now} onSelect={pick} />
         <span className="grow" />
         <div className="left-foot"><kbd>j</kbd> <kbd>k</kbd> move between tasks</div>
       </nav>
       <div className="divider d-left" onPointerDown={drag('left')} />
 
-      <main className="center">
+      <main className="center" data-term={term.active ? '' : undefined}>
+        <TabStrip t={term} />
         <div className="path">
           {person ? (
             <>
@@ -371,13 +381,14 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
         {person ? (
           <PersonView m={person} own={own} id={id} now={now} onSelect={select} owner={owner} />
         ) : agent ? (
-          <AgentCard agent={agent} now={now} onSelect={select} />
+          <AgentCard agent={agent} now={now} onSelect={select} onNewTerminal={term.full ? undefined : () => term.newAgent(agent.side === 'frontend' ? 'frontend' : 'backend')} />
         ) : proposed ? (
           <WorkOrder task={proposed} id={id} onPut={live.putTask} onDismissed={() => select(FEED)} />
         ) : (
           <Thread live={live} task={active} id={id} outgoing={outgoing} now={now} onSignOut={onSignOut} />
         )}
         {!proposed && !agent && !person && <NoteBox id={id} />}
+        <TermStack t={term} />
         <BottomPanel live={live} now={now} onSelect={select} />
       </main>
       <div className="divider d-right" onPointerDown={drag('right')} />
@@ -507,7 +518,7 @@ function AgentRows({ agents, activeId, now, onSelect }: { agents: AgentDoc[]; ac
 }
 
 /** The centre pane for a selected agent: who it is, what it last did, and what it is holding. */
-function AgentCard({ agent, now, onSelect }: { agent: AgentDoc; now: number; onSelect: (id: string) => void }) {
+function AgentCard({ agent, now, onSelect, onNewTerminal }: { agent: AgentDoc; now: number; onSelect: (id: string) => void; onNewTerminal?: () => void }) {
   return (
     <div className="transcript">
       <div className="col">
@@ -553,6 +564,11 @@ function AgentCard({ agent, now, onSelect }: { agent: AgentDoc; now: number; onS
           </div>
         ))}
         {!agent.claims.length && <p className="note">Holding no claims. It edits nothing until it calls task_claim.</p>}
+        {onNewTerminal && (
+          <button type="button" className="btn agent-term" onClick={onNewTerminal}>
+            Open a terminal for a new agent
+          </button>
+        )}
       </div>
     </div>
   )
