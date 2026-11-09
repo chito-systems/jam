@@ -7,9 +7,10 @@ import {
   type ElasticClientLike,
   ElasticStore,
   rawMapping,
+  tasksMapping,
 } from "./elastic";
 import { MemoryStore } from "./store";
-import { type ItemDoc, type RawDoc, SearchParamsSchema } from "./types";
+import { type ItemDoc, type RawDoc, SearchParamsSchema, type TaskDoc } from "./types";
 
 const raw: RawDoc = {
   team_id: "t1",
@@ -32,7 +33,19 @@ const item: ItemDoc = {
   raw_ids: ["c1:0"],
   status: "open",
 };
-const opts = { rawIndex: "raw_x", itemsIndex: "items_x" };
+const task: TaskDoc = {
+  team_id: "t1",
+  id: "task1",
+  title: "wire the delegator",
+  side: "backend",
+  owner: "agent:opus-1",
+  paths: ["apps/api/"],
+  status: "claimed",
+  created_at: "2026-11-09T19:02:00.000Z",
+  updated_at: "2026-11-09T19:02:00.000Z",
+};
+const opts = { rawIndex: "raw_x", itemsIndex: "items_x", tasksIndex: "tasks_x" };
+const shards = { total: 1, successful: 1, failed: 0 };
 
 const searchRes = (hits: Array<{ _index: string; _score?: number; _source: unknown }>) =>
   ({
@@ -44,9 +57,14 @@ const searchRes = (hits: Array<{ _index: string; _score?: number; _source: unkno
 
 function fakeClient() {
   const client = {
-    indices: { create: vi.fn<ElasticClientLike["indices"]["create"]>(async () => ({})) },
+    indices: {
+      create: vi.fn<ElasticClientLike["indices"]["create"]>(async () => ({})),
+      putMapping: vi.fn<ElasticClientLike["indices"]["putMapping"]>(async () => ({})),
+    },
     bulk: vi.fn<ElasticClientLike["bulk"]>(async () => ({ errors: false, items: [], took: 1 })),
+    index: vi.fn<ElasticClientLike["index"]>(async () => ({})),
     search: vi.fn<ElasticClientLike["search"]>(async () => searchRes([])),
+    count: vi.fn<ElasticClientLike["count"]>(async () => ({ count: 0, _shards: shards })),
     ping: vi.fn<ElasticClientLike["ping"]>(async () => true),
   };
   return client;
@@ -64,6 +82,35 @@ describe("mappings", () => {
       type: "semantic_text",
       inference_id: "my-e5",
     });
+    expect(m.properties?.side).toEqual({ type: "keyword" });
+  });
+
+  it("maps tasks strictly: keywords, text title/note, dates", () => {
+    const m = tasksMapping();
+    expect(m.dynamic).toBe("strict");
+    for (const f of ["team_id", "id", "side", "owner", "paths", "status", "pr"]) {
+      expect(m.properties?.[f]).toEqual({ type: "keyword" });
+    }
+    expect(m.properties?.title).toEqual({ type: "text" });
+    expect(m.properties?.note).toEqual({ type: "text" });
+    expect(m.properties?.created_at).toEqual({ type: "date" });
+    expect(m.properties?.updated_at).toEqual({ type: "date" });
+  });
+
+  it("ensureReady put-maps new fields onto an existing index, without semantic_text", async () => {
+    const exists = Object.assign(new Error("exists"), {
+      meta: { body: { error: { type: "resource_already_exists_exception" } } },
+    });
+    const client = fakeClient();
+    client.indices.create.mockRejectedValueOnce(exists);
+    await new ElasticStore(client, opts).ensureReady();
+    expect(client.indices.create.mock.calls[2]?.[0].index).toBe("tasks_x");
+    expect(client.indices.putMapping).toHaveBeenCalledTimes(1);
+    const put = client.indices.putMapping.mock.calls[0]?.[0];
+    expect(put?.index).toBe("raw_x");
+    expect(put?.properties?.side).toEqual({ type: "keyword" });
+    expect(put?.properties?.text).toEqual({ type: "text", copy_to: "text_semantic" });
+    expect(put?.properties?.text_semantic).toBeUndefined();
   });
 
   it("ensureReady tolerates indices that already exist, and sets no shard settings", async () => {
@@ -73,7 +120,7 @@ describe("mappings", () => {
     const client = fakeClient();
     client.indices.create.mockRejectedValueOnce(exists);
     await new ElasticStore(client, opts).ensureReady();
-    expect(client.indices.create).toHaveBeenCalledTimes(2);
+    expect(client.indices.create).toHaveBeenCalledTimes(3);
     const first = client.indices.create.mock.calls[0];
     expect(first?.[0].index).toBe("raw_x");
     expect(first?.[0].settings).toBeUndefined();
@@ -122,6 +169,19 @@ describe("search", () => {
     for (const r of rrf?.retrievers ?? []) {
       expect(JSON.stringify(r)).toContain(JSON.stringify(filters));
     }
+  });
+
+  it("filters by side in both retrievers and in recent (side excludes items)", async () => {
+    const p = SearchParamsSchema.parse({ team_id: "t1", q: "x", side: "frontend" });
+    expect(buildFilters(p)).toEqual([{ term: { team_id: "t1" } }, { term: { side: "frontend" } }]);
+    const retrievers = buildHybridRequest(p, ["raw_x", "items_x"]).retriever?.rrf?.retrievers ?? [];
+    expect(retrievers).toHaveLength(2);
+    for (const r of retrievers) expect(JSON.stringify(r)).toContain('{"term":{"side":"frontend"}}');
+    const client = fakeClient();
+    await new ElasticStore(client, opts).recent({ team_id: "t1", limit: 5, side: "backend" });
+    expect(client.search.mock.calls[0]?.[0].query).toEqual({
+      bool: { filter: [{ term: { team_id: "t1" } }, { term: { side: "backend" } }] },
+    });
   });
 
   it("maps both layers and attaches linked items to raw hits", async () => {
@@ -176,6 +236,57 @@ describe("recent and ping", () => {
   });
 });
 
+describe("tasks and counts", () => {
+  it("upserts a task by id and waits for refresh", async () => {
+    const client = fakeClient();
+    await new ElasticStore(client, opts).upsertTask(task);
+    expect(client.index).toHaveBeenCalledWith({ index: "tasks_x", id: "task1", document: task, refresh: "wait_for" });
+  });
+
+  it("filters tasks by team/status/side, newest first, and parses", async () => {
+    const client = fakeClient();
+    client.search.mockResolvedValueOnce(searchRes([{ _index: "tasks_x", _source: task }]));
+    const store = new ElasticStore(client, opts);
+    expect(await store.tasks({ team_id: "t1", status: "claimed", side: "backend", limit: 7 })).toEqual([task]);
+    expect(client.search).toHaveBeenCalledWith({
+      index: "tasks_x",
+      size: 7,
+      query: {
+        bool: { filter: [{ term: { team_id: "t1" } }, { term: { status: "claimed" } }, { term: { side: "backend" } }] },
+      },
+      sort: [{ created_at: "desc" }],
+    });
+  });
+
+  it("maps aggregations and the items count into StoreCounts", async () => {
+    const client = fakeClient();
+    client.search.mockResolvedValueOnce({
+      ...searchRes([]),
+      hits: { total: { value: 5, relation: "eq" }, hits: [] },
+      aggregations: {
+        by_who: { buckets: [{ key: "cam", doc_count: 3 }, { key: "jake", doc_count: 2 }] },
+        by_type: { buckets: [{ key: "voice", doc_count: 5 }] },
+        by_side: { buckets: [{ key: "backend", doc_count: 4 }] },
+      },
+    } as estypes.SearchResponse<unknown>);
+    client.count.mockResolvedValueOnce({ count: 2, _shards: shards });
+    expect(await new ElasticStore(client, opts).counts("t1")).toEqual({
+      raw_total: 5,
+      items_total: 2,
+      by_who: { cam: 3, jake: 2 },
+      by_type: { voice: 5 },
+      by_side: { backend: 4 },
+    });
+    const req = client.search.mock.calls[0]?.[0];
+    expect(req).toMatchObject({ index: "raw_x", size: 0, track_total_hits: true });
+    expect(req?.aggs?.by_side).toEqual({ terms: { field: "side", size: 50 } });
+    expect(client.count.mock.calls[0]?.[0]).toEqual({
+      index: "items_x",
+      query: { bool: { filter: [{ term: { team_id: "t1" } }] } },
+    });
+  });
+});
+
 describe("createStoreFromEnv", () => {
   it("picks memory by default and elastic when a URL is set", () => {
     expect(createStoreFromEnv({})).toBeInstanceOf(MemoryStore);
@@ -183,7 +294,11 @@ describe("createStoreFromEnv", () => {
     expect(createStoreFromEnv({ STORE: "memory", ELASTIC_URL: "http://x:9200" })).toBeInstanceOf(MemoryStore);
     const store = createStoreFromEnv({ ELASTIC_URL: "http://x:9200" });
     expect(store).toBeInstanceOf(ElasticStore);
-    expect((store as ElasticStore).opts).toEqual({ rawIndex: "context_raw", itemsIndex: "context_items" });
+    expect((store as ElasticStore).opts).toEqual({
+      rawIndex: "context_raw",
+      itemsIndex: "context_items",
+      tasksIndex: "context_tasks",
+    });
   });
 
   it("never falls back to memory when elastic is asked for", () => {

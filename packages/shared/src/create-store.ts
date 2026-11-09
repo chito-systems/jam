@@ -26,6 +26,7 @@ export function createStoreFromEnv(env: NodeJS.ProcessEnv): ContextStore {
   return new ElasticStore(client, {
     rawIndex: env.ELASTIC_INDEX_RAW || "context_raw",
     itemsIndex: env.ELASTIC_INDEX_ITEMS || "context_items",
+    tasksIndex: env.ELASTIC_INDEX_TASKS || "context_tasks",
     ...(env.ELASTIC_INFERENCE_ID ? { inferenceId: env.ELASTIC_INFERENCE_ID } : {}),
   });
 }
