@@ -279,6 +279,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
         <span className="extra">searchable p50 <b>{formatMs(live.stats?.slo.p50_ms)}</b></span>
         <span className="sp" />
         <button type="button" className="sb-btn" aria-label="Change team or name" title="Change team or name" onClick={onSignOut}>{id.who}</button>
+        {!id.persisted && <span className="bad" role="status" title="This browser blocked storage, so the capture page will ask for your team and name again.">this tab only</span>}
         <span>{live.conn}</span>
       </footer>
 
