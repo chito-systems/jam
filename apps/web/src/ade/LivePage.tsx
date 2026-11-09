@@ -6,12 +6,14 @@ import '@fontsource/bricolage-grotesque/800.css'
 import './ade.css'
 import { agentMode, foldGone, groupAgents, ownerLabel, shortName } from './agents'
 import { armAudio, playChime, setSound, soundOn } from './chime'
+import { Companion } from './Companion'
 import type { RunState } from './data'
 import { Guide, guideSeen, HelpIcon } from './Guide'
 import { addNote, agentName, ago, captainsOf, clock, decisionLogUrl, formatMs, type Identity, isAgent, itemNewer, type Live, loadIdentity, loadOwnership, loadRecent, type Member, member, mergeSaid, newlyDone, pct, pendingCaptures, roster, sameWho, saveIdentity, searchBrain, setVerdict, threadFor, useLive } from './live'
 import { Mark, type MarkMode, ThemeCtx } from './Mark'
 import { orderFor, proposedOrders, setChaos, workTasks } from './orders'
-import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, useTheme } from './parts'
+import { Intro } from './Intro'
+import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, usePhone, useTheme } from './parts'
 import { type Outgoing, Talk } from './Talk'
 import { Terminal } from './Terminal'
 import { TabStrip, TermStack, useTermTabs } from './TermTabs'
@@ -56,11 +58,33 @@ const seen = (iso: string, now: number) => {
 export function LivePage() {
   const { theme, flip } = useTheme()
   const [id, setId] = useState<Identity | null>(loadIdentity)
+  const phone = usePhone()
+  // The load-in plays on every launch and lifts once the workspace has its data (at once on sign-in).
+  const [intro, setIntro] = useState(true)
+  const [loaded, setLoaded] = useState(false)
+  const onLoaded = useCallback(() => setLoaded(true), [])
+  const signOut = () => setId(null)
   return (
     <ThemeCtx.Provider value={theme}>
-      {id ? <Shell id={id} theme={theme} flip={flip} onSignOut={() => setId(null)} /> : <Join onJoin={setId} />}
+      {!id ? (
+        <Join onJoin={setId} />
+      ) : phone ? (
+        <PhoneApp id={id} onSignOut={signOut} onLoaded={onLoaded} />
+      ) : (
+        <Shell id={id} theme={theme} flip={flip} onSignOut={signOut} onLoaded={onLoaded} />
+      )}
+      {intro && <Intro ready={!id || loaded} onDone={() => setIntro(false)} />}
     </ThemeCtx.Provider>
   )
+}
+
+/** On a phone, JAM is a companion to the laptop: what is running, what needs you, and a mic. */
+function PhoneApp({ id, onSignOut, onLoaded }: { id: Identity; onSignOut: () => void; onLoaded: () => void }) {
+  const live = useLive(id.team)
+  useEffect(() => {
+    if (live.status !== 'loading') onLoaded()
+  }, [live.status, onLoaded])
+  return <Companion id={id} live={live} onSignOut={onSignOut} />
 }
 
 // ---------- identity ----------
@@ -98,8 +122,11 @@ function Join({ onJoin }: { onJoin: (id: Identity) => void }) {
 
 // ---------- shell ----------
 
-function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 'dark'; flip: () => void; onSignOut: () => void }) {
+function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 'light' | 'dark'; flip: () => void; onSignOut: () => void; onLoaded: () => void }) {
   const live = useLive(id.team)
+  useEffect(() => {
+    if (live.status !== 'loading') onLoaded()
+  }, [live.status, onLoaded])
   const [activeId, setActiveId] = useState(FEED)
   const [tab, setTab] = useState<RightTab>('brain')
   const [palette, setPalette] = useState(false)
