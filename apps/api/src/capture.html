@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hack Harness capture</title>
+<style>
+  :root { --fg: #111; --muted: #666; --bg: #fafafa; --line: #ddd; --ok: #0a7d32; --bad: #c40000; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.4 system-ui, -apple-system, sans-serif; color: var(--fg); background: var(--bg); }
+  main { max-width: 640px; margin: 0 auto; padding: 12px 16px 40px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 22px 0 6px; }
+  input, textarea, button { font: inherit; }
+  input[type=text], input[type=search], textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  button { padding: 8px 14px; border: 1px solid #333; border-radius: 6px; background: #fff; cursor: pointer; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > input { flex: 1; min-width: 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .ok { color: var(--ok); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .msg { margin: 8px 0; padding: 8px; border-radius: 6px; background: #fff3f3; color: var(--bad); border: 1px solid #f3c0c0; }
+  .msg:empty { display: none; }
+  #banner { display: none; position: sticky; top: 0; z-index: 10; padding: 14px 16px; background: var(--bad); color: #fff;
+    font-weight: 800; font-size: 18px; text-align: center; }
+  body.hf #banner { display: block; }
+  #talk { display: block; width: 100%; height: 160px; margin: 8px 0; border-radius: 16px; border: 2px solid #333;
+    background: #fff; font-size: 22px; font-weight: 700;
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  #talk.live { background: var(--bad); color: #fff; border-color: var(--bad); }
+  .locked main > section.needs-id { opacity: .4; pointer-events: none; }
+  ul { list-style: none; padding: 0; margin: 0; }
+  li { padding: 8px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  .meta { font-size: 12px; color: var(--muted); }
+  .tag { display: inline-block; font-size: 11px; padding: 0 6px; margin-right: 4px; border-radius: 4px; background: #222; color: #fff; }
+  footer { margin-top: 30px; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body class="locked">
+<div id="banner">RECORDING — everyone nearby is being captured</div>
+<main>
+  <section>
+    <h2>Who are you</h2>
+    <form id="idForm" class="row">
+      <input id="team" type="text" placeholder="team code" autocomplete="off" autocapitalize="none" required>
+      <input id="who" type="text" placeholder="your name" autocomplete="off" autocapitalize="none" required>
+      <button type="submit">save</button>
+    </form>
+    <div id="idStatus" class="muted"></div>
+  </section>
+
+  <section class="needs-id">
+    <h2>Talk</h2>
+    <div id="micMsg" class="msg"></div>
+    <button id="talk" type="button">hold to talk</button>
+    <div class="row muted">
+      <label><input id="hf" type="checkbox"> hands-free (uploads every 20 s)</label>
+      <span id="recStatus"></span>
+    </div>
+    <div class="muted">desktop: hold space to talk</div>
+  </section>
+
+  <section class="needs-id">
+    <h2>Paste text</h2>
+    <textarea id="text" rows="4" placeholder="notes, decisions, a pasted chat… (cmd/ctrl+enter sends)"></textarea>
+    <div class="row" style="margin-top:6px"><button id="send" type="button">send</button></div>
+  </section>
+
+  <section class="needs-id">
+    <h2>Captures this session</h2>
+    <ul id="captures"><li class="muted">nothing yet</li></ul>
+  </section>
+
+  <section class="needs-id">
+    <h2>Search</h2>
+    <form id="searchForm" class="row">
+      <input id="q" type="search" placeholder="what did we decide about…" autocomplete="off">
+      <button type="submit">search</button>
+    </form>
+    <div id="searchMeta" class="muted"></div>
+    <ul id="hits"></ul>
+    <h2>Recent</h2>
+    <div id="recentMeta" class="muted"></div>
+    <ul id="recent"></ul>
+  </section>
+
+  <footer>bootstrap capture page — replaced by /capture</footer>
+</main>
+<script>
+"use strict";
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const TZ = "America/Denver";
+  const MIN_MS = 400;
+  const HF_CHUNK_MS = 20000;
+  const POLL_MS = 700;
+  const POLL_GIVE_UP_MS = 60000;
+  const SLO_MS = 10000;
+
+  // ---------- helpers (server text only ever goes in via textContent) ----------
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = String(text);
+    return e;
+  }
+  function localTime(iso) {
+    try { return new Date(iso).toLocaleTimeString("en-US", { timeZone: TZ }); } catch (_) { return String(iso); }
+  }
+  function store(key, val) {
+    try { if (val === undefined) return localStorage.getItem(key) || ""; localStorage.setItem(key, val); } catch (_) {}
+    return "";
+  }
+  async function api(url, opts) {
+    const res = await fetch(url, opts);
+    let body = null;
+    const raw = await res.text();
+    try { body = raw ? JSON.parse(raw) : null; } catch (_) { body = null; }
+    if (!res.ok) {
+      const detail = body?.error ? body.error : raw.slice(0, 200);
+      throw new Error(`HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
+    }
+    return body;
+  }
+
+  // ---------- identity ----------
+  let id = { team: store("hh.team"), who: store("hh.who") };
+  function applyIdentity() {
+    $("team").value = id.team;
+    $("who").value = id.who;
+    const ok = Boolean(id.team && id.who);
+    document.body.classList.toggle("locked", !ok);
+    $("idStatus").textContent = ok
+      ? `capturing as ${id.who} on team ${id.team}`
+      : "set team code and name to start";
+    if (ok) refreshRecent();
+  }
+  $("idForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const team = $("team").value.trim().toLowerCase();
+    const who = $("who").value.trim().toLowerCase();
+    if (!team || !who) return;
+    id = { team: team, who: who };
+    store("hh.team", team);
+    store("hh.who", who);
+    applyIdentity();
+  });
+  function hasId() { return Boolean(id.team && id.who); }
+
+  // ---------- capture list ----------
+  let firstCapture = true;
+  function addEntry(label) {
+    const list = $("captures");
+    if (firstCapture) { list.textContent = ""; firstCapture = false; }
+    const li = el("li");
+    const meta = el("div", "meta", `${new Date().toLocaleTimeString("en-US", { timeZone: TZ })} · ${label}`);
+    const status = el("div", "", "uploading…");
+    li.appendChild(meta);
+    li.appendChild(status);
+    list.insertBefore(li, list.firstChild);
+    return {
+      set: (text, cls) => { status.textContent = text; status.className = cls || ""; },
+    };
+  }
+
+  async function submit(entry, url, opts) {
+    try {
+      const r = await api(url, opts);
+      if (!r?.capture_id) throw new Error("no capture_id in response");
+      entry.set(`${r.state} (${r.capture_id})`);
+      poll(entry, r.capture_id);
+    } catch (err) {
+      entry.set(`upload failed: ${err.message}`, "bad");
+    }
+  }
+
+  function poll(entry, captureId) {
+    const deadline = Date.now() + POLL_GIVE_UP_MS;
+    async function tick() {
+      try {
+        const s = await api(`/api/captures/${encodeURIComponent(captureId)}`);
+        if (s.state === "indexed") {
+          if (typeof s.ms_to_searchable === "number") {
+            const secs = (s.ms_to_searchable / 1000).toFixed(1);
+            entry.set(`searchable in ${secs} s`, s.ms_to_searchable < SLO_MS ? "ok" : "bad");
+          } else {
+            entry.set("indexed", "ok");
+          }
+          refreshRecent();
+          return;
+        }
+        if (s.state === "failed") { entry.set(`failed: ${s.error || "unknown error"}`, "bad"); return; }
+        entry.set(`${s.state}…`);
+      } catch (err) {
+        entry.set(`status check error: ${err.message} (retrying)`, "bad");
+      }
+      if (Date.now() > deadline) { entry.set("gave up after 60 s without indexed/failed", "bad"); return; }
+      setTimeout(tick, POLL_MS);
+    }
+    setTimeout(tick, POLL_MS);
+  }
+
+  // ---------- text ----------
+  function sendText() {
+    if (!hasId()) return;
+    const text = $("text").value.trim();
+    if (!text) return;
+    const entry = addEntry(`text: ${text.length > 60 ? `${text.slice(0, 60)}…` : text}`);
+    $("text").value = "";
+    submit(entry, "/api/ingest", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ team_id: id.team, who: id.who, type: "text", text: text, at: new Date().toISOString() }),
+    });
+  }
+  $("send").addEventListener("click", sendText);
+  $("text").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendText(); }
+  });
+
+  // ---------- audio ----------
+  const micMsg = $("micMsg");
+  const canRecord = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+  if (!canRecord) {
+    micMsg.textContent = window.isSecureContext === false
+      ? "Microphone unavailable: this page is on plain http. Mic only works on https or localhost. Text capture still works."
+      : "Microphone unavailable: this browser has no MediaRecorder/getUserMedia. Text capture still works.";
+    $("talk").disabled = true;
+    $("hf").disabled = true;
+  }
+  let MIME = "";
+  if (canRecord && MediaRecorder.isTypeSupported) {
+    MIME = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => MediaRecorder.isTypeSupported(m)) || "";
+  }
+
+  let streamP = null;
+  function getStream() {
+    if (!streamP) {
+      streamP = navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => {
+        micMsg.textContent = "";
+        return s;
+      }, (err) => {
+        streamP = null;
+        micMsg.textContent = err && err.name === "NotAllowedError"
+          ? "Microphone permission denied. Allow mic access for this site in browser settings, then reload."
+          : `Could not open microphone: ${err?.message ? err.message : String(err)}`;
+        throw err;
+      });
+    }
+    return streamP;
+  }
+
+  // One segment = one standalone audio file = one capture.
+  function startSegment(stream) {
+    const rec = MIME ? new MediaRecorder(stream, { mimeType: MIME }) : new MediaRecorder(stream);
+    const parts = [];
+    const seg = { at: new Date().toISOString(), t0: Date.now(), rec: rec };
+    seg.done = new Promise((resolve) => {
+      rec.ondataavailable = (e) => { if (e.data?.size) parts.push(e.data); };
+      rec.onstop = () => { resolve(new Blob(parts, { type: rec.mimeType || MIME || "audio/webm" })); };
+      rec.onerror = (e) => { micMsg.textContent = `Recorder error: ${e.error ? e.error.message : "unknown"}`; };
+    });
+    rec.start();
+    return seg;
+  }
+
+  function finishSegment(seg, label) {
+    const dur = Date.now() - seg.t0;
+    if (seg.rec.state !== "inactive") seg.rec.stop();
+    if (dur < MIN_MS) { $("recStatus").textContent = "too short, not sent"; return; }
+    seg.done.then((blob) => {
+      if (!blob.size) { addEntry(label).set("recording was empty (mic gave no audio), not sent", "bad"); return; }
+      const ext = /mp4|aac|m4a/.test(blob.type) ? "mp4" : "webm";
+      const fd = new FormData();
+      fd.append("team_id", id.team);
+      fd.append("who", id.who);
+      fd.append("type", "voice");
+      fd.append("at", seg.at);
+      fd.append("file", blob, `voice-${seg.at.replace(/[:.]/g, "-")}.${ext}`);
+      const entry = addEntry(`${label} ${(dur / 1000).toFixed(1)} s`);
+      submit(entry, "/api/ingest", { method: "POST", body: fd });
+    });
+  }
+
+  // ---------- hold to talk ----------
+  const talk = $("talk");
+  let pressing = false;
+  let ptt = null;
+  let ticker = null;
+  function setLive(on, t0) {
+    talk.classList.toggle("live", on);
+    talk.textContent = on ? "recording… release to send" : "hold to talk";
+    clearInterval(ticker);
+    $("recStatus").textContent = "";
+    if (on) ticker = setInterval(() => {
+      $("recStatus").textContent = `${((Date.now() - t0) / 1000).toFixed(1)} s`;
+    }, 100);
+  }
+  function pressStart() {
+    if (!canRecord || !hasId() || hf || pressing) return;
+    pressing = true;
+    talk.textContent = "opening mic…";
+    getStream().then((s) => {
+      if (!pressing && !ptt) talk.textContent = "hold to talk";
+      if (!pressing || ptt) return; // released before the mic opened
+      ptt = startSegment(s);
+      setLive(true, ptt.t0);
+    }, () => { pressing = false; talk.textContent = "hold to talk"; });
+  }
+  function pressEnd() {
+    if (!pressing) return;
+    pressing = false;
+    if (!ptt) return;
+    const seg = ptt;
+    ptt = null;
+    setLive(false);
+    finishSegment(seg, "voice");
+  }
+  talk.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    try { talk.setPointerCapture(e.pointerId); } catch (_) {}
+    pressStart();
+  });
+  ["pointerup", "pointercancel", "pointerleave", "lostpointercapture"].forEach((t) => {
+    talk.addEventListener(t, pressEnd);
+  });
+  talk.addEventListener("contextmenu", (e) => { e.preventDefault(); });
+  function typing(t) {
+    return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+  }
+  document.addEventListener("keydown", (e) => {
+    if (e.code !== "Space" || typing(e.target)) return;
+    e.preventDefault();
+    if (!e.repeat) pressStart();
+  });
+  document.addEventListener("keyup", (e) => {
+    if (e.code !== "Space" || typing(e.target)) return;
+    e.preventDefault();
+    pressEnd();
+  });
+  window.addEventListener("blur", pressEnd);
+
+  // ---------- hands-free ----------
+  let hf = false;
+  let hfSeg = null;
+  let hfTimer = null;
+  $("hf").addEventListener("change", (e) => {
+    if (e.target.checked) {
+      if (!hasId()) { e.target.checked = false; return; }
+      getStream().then((s) => {
+        if (!$("hf").checked) return;
+        hf = true;
+        document.body.classList.add("hf");
+        talk.disabled = true;
+        hfSeg = startSegment(s);
+        setLive(true, hfSeg.t0);
+        talk.textContent = "hands-free on";
+        hfTimer = setInterval(() => {
+          const old = hfSeg;
+          hfSeg = startSegment(s); // start the next file before stopping the old one: no gap
+          setLive(true, hfSeg.t0);
+          talk.textContent = "hands-free on";
+          finishSegment(old, "hands-free");
+        }, HF_CHUNK_MS);
+      }, () => { e.target.checked = false; });
+    } else {
+      if (!hf) return;
+      hf = false;
+      clearInterval(hfTimer);
+      document.body.classList.remove("hf");
+      talk.disabled = !canRecord;
+      setLive(false);
+      if (hfSeg) finishSegment(hfSeg, "hands-free");
+      hfSeg = null;
+    }
+  });
+
+  // ---------- search + recent ----------
+  function renderDoc(list, doc, tag) {
+    const li = el("li");
+    const meta = el("div", "meta");
+    if (tag) meta.appendChild(el("span", "tag", tag));
+    meta.appendChild(document.createTextNode(`${doc.who || "?"} · ${localTime(doc.at)}${doc.type ? ` · ${doc.type}` : ""}`));
+    li.appendChild(meta);
+    li.appendChild(el("div", "", doc.text));
+    list.appendChild(li);
+    return li;
+  }
+  $("searchForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const q = $("q").value.trim();
+    if (!q || !hasId()) return;
+    const hits = $("hits");
+    $("searchMeta").textContent = "searching…";
+    try {
+      const r = await api(`/api/search?team_id=${encodeURIComponent(id.team)}&q=${encodeURIComponent(q)}`);
+      hits.textContent = "";
+      $("searchMeta").textContent = `${r.hits.length} hits · mode: ${r.mode} · ${r.took_ms} ms`;
+      r.hits.forEach((h) => {
+        if (h.layer === "item") { renderDoc(hits, h.doc, h.doc.kind); return; }
+        const li = renderDoc(hits, h.doc);
+        (h.items || []).forEach((it) => {
+          const d = el("div", "meta");
+          d.appendChild(el("span", "tag", it.kind));
+          d.appendChild(document.createTextNode(it.text));
+          li.appendChild(d);
+        });
+      });
+    } catch (err) {
+      $("searchMeta").textContent = "";
+      hits.textContent = "";
+      hits.appendChild(el("li", "bad", `search failed: ${err.message}`));
+    }
+  });
+
+  let recentBusy = false;
+  async function refreshRecent() {
+    if (!hasId() || recentBusy) return;
+    recentBusy = true;
+    try {
+      const r = await api(`/api/recent?team_id=${encodeURIComponent(id.team)}&limit=20`);
+      const list = $("recent");
+      list.textContent = "";
+      r.docs.forEach((d) => { renderDoc(list, d); });
+      $("recentMeta").textContent = r.docs.length ? `updated ${localTime(new Date().toISOString())}` : "nothing in the brain yet";
+    } catch (err) {
+      $("recentMeta").textContent = "";
+      $("recentMeta").appendChild(el("span", "bad", `recent failed: ${err.message}`));
+    } finally {
+      recentBusy = false;
+    }
+  }
+  setInterval(refreshRecent, 10000);
+
+  applyIdentity();
+})();
+</script>
+</body>
+</html>
