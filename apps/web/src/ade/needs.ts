@@ -1,5 +1,5 @@
 // What the phone companion shows: pure, so it runs in tests without a browser.
-import type { ItemDoc, RawDoc, TaskDoc } from '@hh/shared'
+import type { CaptureStatus, ItemDoc, RawDoc, TaskDoc } from '@hh/shared'
 import { proposedOrders } from './orders'
 
 /** Librarian items worth a person's yes or no: the ones that steer work. */
@@ -15,4 +15,25 @@ export function needsYou(tasks: TaskDoc[], items: ItemDoc[], handled: Set<string
 }
 
 /** The last few things said, one line each, without the agents' task bookkeeping. */
-export const justIn = (docs: RawDoc[], n = 5) => docs.filter((d) => !d.source_ref?.startsWith('task:')).slice(0, n)
+/** The last few things people and agents said, one line each: no task bookkeeping, no PR/review traffic. */
+export const justIn = (docs: RawDoc[], n = 5) =>
+  docs.filter((d) => !d.source_ref?.startsWith('task:') && d.type !== 'pr' && d.type !== 'review').slice(0, n)
+
+/** Something this phone sent: a voice clip or a note, before and after the brain has it. */
+export type Sent = { key: string; capture_id?: string; error?: string }
+export type SentRow = { key: string; state: 'sending' | 'queued' | 'transcribing' | 'indexing' | 'in' | 'failed'; text?: string; ms?: number; error?: string }
+
+/** Where each thing this phone sent has got to, newest first, with the words once the brain has them. */
+export function sentRows(sent: Sent[], captures: CaptureStatus[], docs: RawDoc[]): SentRow[] {
+  return sent.map((o): SentRow => {
+    if (o.error) return { key: o.key, state: 'failed', error: o.error }
+    if (!o.capture_id) return { key: o.key, state: 'sending' }
+    const chunks = docs.filter((d) => d.capture_id === o.capture_id).sort((a, b) => a.id.localeCompare(b.id))
+    const c = captures.find((x) => x.capture_id === o.capture_id)
+    if (chunks.length) return { key: o.key, state: 'in', text: chunks.map((d) => d.text).join(' '), ms: c?.ms_to_searchable }
+    if (!c) return { key: o.key, state: 'queued' }
+    if (c.state === 'failed') return { key: o.key, state: 'failed', error: c.error ?? 'the brain could not use it' }
+    if (c.state === 'indexed') return { key: o.key, state: 'in', ms: c.ms_to_searchable }
+    return { key: o.key, state: c.state }
+  })
+}

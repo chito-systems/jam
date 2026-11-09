@@ -3,17 +3,18 @@
 // (work orders, the librarian's guesses), and say things into the brain from anywhere.
 // Reading transcripts, files and the terminal stays on the laptop.
 import type { ItemDoc, ItemVerdict, TaskDoc } from '@hh/shared'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './companion.css'
 import { armAudio, playChime } from './chime'
 import { Guide, guideSeen, HelpIcon } from './Guide'
 import { addNote, agentName, ago, type Identity, isAgent, type Live, newlyDone, setVerdict } from './live'
 import { Mark } from './Mark'
-import { justIn, needsYou } from './needs'
+import { justIn, needsYou, type Sent, sentRows } from './needs'
 import { acceptOrder, dismissOrder, orderFor } from './orders'
 import { FreezeClock } from './parts'
 import { Talk } from './Talk'
 
+const SENT_LABEL = { sending: 'Sending…', queued: 'Sent. Waiting for the brain…', transcribing: 'Transcribing…', indexing: 'Filing it in the brain…' } as const
 const KIND_LABEL: Partial<Record<ItemDoc['kind'], string>> = { decision: 'Decision', todo: 'Todo', blocker: 'Blocker', question: 'Question' }
 
 export function Companion({ id, live, onSignOut }: { id: Identity; live: Live; onSignOut: () => void }) {
@@ -22,6 +23,9 @@ export function Companion({ id, live, onSignOut }: { id: Identity; live: Live; o
   const [handled, setHandled] = useState<Set<string>>(() => new Set())
   const [toast, setToast] = useState('')
   const [writing, setWriting] = useState(false)
+  // What this phone sent, so a clip is visible from the tap until the brain has the words.
+  const [sent, setSent] = useState<Sent[]>([])
+  const track = useCallback((o: Sent) => setSent((list) => [o, ...list.filter((x) => x.key !== o.key)].slice(0, 3)), [])
   const prev = useRef<TaskDoc[] | null>(null)
 
   useEffect(() => {
@@ -49,6 +53,7 @@ export function Companion({ id, live, onSignOut }: { id: Identity; live: Live; o
   const working = useMemo(() => live.tasks.filter((t) => t.status === 'claimed').sort((a, b) => b.updated_at.localeCompare(a.updated_at)), [live.tasks])
   const needs = useMemo(() => needsYou(live.tasks, live.items, handled), [live.tasks, live.items, handled])
   const recent = useMemo(() => justIn(live.docs), [live.docs])
+  const mine = useMemo(() => sentRows(sent, live.captures, live.docs), [sent, live.captures, live.docs])
   const done = (key: string) => setHandled((s) => new Set(s).add(key))
 
   return (
@@ -101,7 +106,16 @@ export function Companion({ id, live, onSignOut }: { id: Identity; live: Live; o
         <section aria-labelledby="c-in">
           <h2 id="c-in" className="c-sec"><span>Just in</span><span /></h2>
           <ul className="c-in">
-            {recent.map((d) => (
+            {mine.map((r) => (
+              <li key={r.key} className="c-mine" data-state={r.state}>
+                <span className="av">{id.who.slice(0, 1).toUpperCase()}</span>
+                <span className="c-line">
+                  <b>You</b> {r.state === 'in' ? (r.text ?? 'In the brain.') : r.state === 'failed' ? `Not saved: ${r.error}` : SENT_LABEL[r.state]}
+                </span>
+                <span className="c-ago">{r.state === 'in' ? (r.ms ? `in ${(r.ms / 1000).toFixed(1)}s` : 'in') : ''}</span>
+              </li>
+            ))}
+            {recent.filter((d) => !sent.some((o) => o.capture_id === d.capture_id)).map((d) => (
               <li key={d.id}>
                 {isAgent(d.who) ? <Mark agent={d.who} size={16} /> : <span className="av">{d.who.slice(0, 1).toUpperCase()}</span>}
                 <span className="c-line"><b>{agentName(d.who)}</b> {d.text}</span>
@@ -117,11 +131,11 @@ export function Companion({ id, live, onSignOut }: { id: Identity; live: Live; o
           <PenIcon />
         </button>
         <div className="c-talk">
-          <Talk id={id} onOutgoing={() => {}} toggle />
+          <Talk id={id} onOutgoing={track} toggle />
         </div>
       </footer>
 
-      {writing && <NoteSheet id={id} onClose={() => setWriting(false)} />}
+      {writing && <NoteSheet id={id} onSent={track} onClose={() => setWriting(false)} />}
       {guide && <Guide id={id} live={live} onSignOut={onSignOut} onClose={() => setGuide(false)} />}
     </div>
   )
@@ -204,7 +218,7 @@ function AskCard({ item, id, onDone }: { item: ItemDoc; id: Identity; onDone: ()
   )
 }
 
-function NoteSheet({ id, onClose }: { id: Identity; onClose: () => void }) {
+function NoteSheet({ id, onSent, onClose }: { id: Identity; onSent: (s: Sent) => void; onClose: () => void }) {
   const [text, setText] = useState('')
   const [state, setState] = useState<{ busy: boolean; error?: string }>({ busy: false })
   const save = async () => {
@@ -212,7 +226,8 @@ function NoteSheet({ id, onClose }: { id: Identity; onClose: () => void }) {
     if (!t || state.busy) return
     setState({ busy: true })
     try {
-      await addNote(id, t)
+      const res = await addNote(id, t)
+      onSent({ key: res.capture_id, capture_id: res.capture_id })
       playChime('sent')
       onClose()
     } catch (e) {

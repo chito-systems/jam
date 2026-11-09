@@ -187,6 +187,16 @@
   .c-line b {
     font-weight: 500;
   }
+  /* What you just sent sits on top until the brain has it; then it reads like any other line. */
+  .c-mine:not([data-state="in"]) .c-line {
+    color: var(--mute);
+  }
+  .c-mine[data-state="in"] .c-line {
+    white-space: normal;
+  }
+  .c-mine[data-state="failed"] .c-line {
+    color: var(--red);
+  }
   .c-ago {
     font: 11px var(--mono);
     color: var(--mute);
