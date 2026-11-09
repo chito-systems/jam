@@ -46,4 +46,12 @@ describe('talk burst', () => {
     expect(bump(0.64)).toBeCloseTo(0.5)
     expect(bump(1)).toBe(0)
   })
+  it('lays one screen over the viewport, computed once', async () => {
+    const { screenDots } = await import('./Burst')
+    const d = screenDots(390, 844, 75, 14, 14)
+    expect(d.length % 2).toBe(0)
+    // About one dot per pitch² of a slightly padded viewport.
+    expect(d.length / 2).toBeGreaterThan(1500)
+    expect(d.length / 2).toBeLessThan(2400)
+  })
 })
