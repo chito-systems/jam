@@ -87,6 +87,13 @@ export function mergeNew<T extends { id: string }>(
   return [...kept, ...fresh.values()].sort((a, b) => key(b).localeCompare(key(a))).slice(0, max)
 }
 
+/** Insert or replace a task, unless the copy we hold is already newer (the SSE event can land first). */
+export function putTaskIn(list: TaskDoc[], t: TaskDoc): TaskDoc[] {
+  const held = list.find((x) => x.id === t.id)
+  if (held && taskNewer(held, t)) return list
+  return upsert(list, t, (x) => x.created_at)
+}
+
 /** True when `a` is a later version of the same task than `b`. */
 export const taskNewer = (a: TaskDoc, b: TaskDoc) => a.updated_at > b.updated_at
 /** True when `a` carries a later verdict than `b` (items change only when someone grades them). */
@@ -192,8 +199,8 @@ export async function setVerdict(id: Identity, itemId: string, verdict: ItemVerd
   return (await res.json()) as ItemDoc
 }
 
-/** The decision log as markdown, every entry quoting the words it came from. */
-export const decisionLogUrl = (team: string) => `/api/decisions.md?team_id=${encodeURIComponent(team)}`
+/** The decision log as markdown, every entry quoting the words it came from, plus open todos and questions. */
+export const decisionLogUrl = (team: string) => `/api/decisions.md?team_id=${encodeURIComponent(team)}&kinds=todo,question`
 
 // ---------- the live store ----------
 
@@ -208,6 +215,10 @@ export type Live = {
   captures: CaptureStatus[]
   stats?: StatsResponse
   reload: () => void
+  /** Puts a task we got back from a POST, so the page moves before the SSE event lands. */
+  putTask: (t: TaskDoc) => void
+  /** Same for the chaos switch. */
+  putChaos: (c: ChaosState) => void
 }
 
 /** Loads the team's tasks, brain and stats, then keeps them current from the SSE feed. */
@@ -226,6 +237,9 @@ export function useLive(team: string | undefined): Live {
   statusRef.current = status
   // A person pressed "Try again": show the loading state. Automatic retries stay silent.
   const manual = useRef(false)
+
+  const putTask = useCallback((t: TaskDoc) => setTasks((list) => putTaskIn(list, t)), [])
+  const putChaos = useCallback((c: ChaosState) => setStats((s) => (s ? { ...s, chaos: c.enabled } : s)), [])
 
   const reload = useCallback(() => {
     manual.current = true
@@ -310,7 +324,7 @@ export function useLive(team: string | undefined): Live {
       setItems((list) => upsert(list, d, (x) => x.at))
       statsSoon()
     })
-    on<ChaosState>('chaos', (c) => setStats((s) => (s ? { ...s, chaos: c.enabled } : s)))
+    on<ChaosState>('chaos', putChaos)
     on<TaskDoc>('task', (d) => {
       setTasks((list) => upsert(list, d, (x) => x.created_at))
       statsSoon()
@@ -326,7 +340,7 @@ export function useLive(team: string | undefined): Live {
       window.clearTimeout(retry)
       window.clearTimeout(statsTimer.current)
     }
-  }, [team, attempt])
+  }, [team, attempt, putChaos])
 
-  return { status, error, conn, tasks, items, docs, captures, stats, reload }
+  return { status, error, conn, tasks, items, docs, captures, stats, reload, putTask, putChaos }
 }
