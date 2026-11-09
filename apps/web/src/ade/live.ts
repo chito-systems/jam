@@ -216,28 +216,6 @@ export function roster(byWho: Record<string, number>, tasks: TaskDoc[], docs: Ra
     .sort((a, b) => score(b) - score(a) || a.who.localeCompare(b.who))
 }
 
-/** People first, each followed by the agents that work for them; agents with no known person last. */
-export function grouped(members: Member[]): { m: Member; under?: string }[] {
-  const byId = new Map(members.map((m) => [m.who, m]))
-  const placed = new Set<string>()
-  const out: { m: Member; under?: string }[] = []
-  for (const m of members) {
-    if (isAgent(m.who) && m.agent?.human && members.some((p) => !isAgent(p.who) && sameWho(p.who, m.agent?.human ?? ''))) continue
-    if (isAgent(m.who)) continue
-    out.push({ m })
-    placed.add(m.who)
-    for (const a of m.agents) {
-      const am = byId.get(a.id)
-      if (am && !placed.has(am.who)) {
-        out.push({ m: am, under: m.who })
-        placed.add(am.who)
-      }
-    }
-  }
-  for (const m of members) if (!placed.has(m.who)) out.push({ m })
-  return out
-}
-
 /** One line for the people list: what they are doing right now. */
 export function memberLine(m: Member): string {
   if (m.working.length === 1) return `on ${m.working[0]?.title}`
