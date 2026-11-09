@@ -12,7 +12,8 @@ export const ROUTES = {
   items: "/api/items", // GET ?ItemsParams -> ItemsResponse
   events: "/api/events", // GET ?team_id= -> SSE stream of FeedEvent
   tasks: "/api/tasks", // GET ?TasksParams -> TasksResponse · POST TaskClaimRequest -> 201 TaskDoc | 409 TaskConflict
-  taskClose: "/api/tasks/:id/close", // POST TaskCloseRequest -> TaskDoc
+  taskClose: "/api/tasks/:id/close", // POST TaskCloseRequest -> TaskDoc (also how a proposed work order is dismissed: status "released")
+  taskAccept: "/api/tasks/:id/accept", // POST TaskAcceptRequest -> 200 TaskDoc (now claimed) | 409 TaskConflict
   stats: "/api/stats", // GET ?team_id= -> StatsResponse (the dashboard's numbers)
   itemVerdict: "/api/items/:id/verdict", // POST ItemVerdictRequest -> ItemDoc (a human confirms or rejects what the librarian extracted)
   chaos: "/api/chaos", // GET -> ChaosState · POST ChaosRequest -> ChaosState (demo switch: slows and fails the index step)
@@ -71,7 +72,9 @@ export const SIDE_PATHS: Record<Side, readonly string[]> = {
   frontend: ["apps/web/"],
 };
 
-export const TaskStatusSchema = z.enum(["claimed", "done", "released"]);
+// proposed: jam drafted it from something the team said; nobody has taken it and it locks no paths.
+// claimed: someone is editing those paths now. done / released: finished or dropped; paths are free.
+export const TaskStatusSchema = z.enum(["proposed", "claimed", "done", "released"]);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
 export const ItemVerdictSchema = z.enum(["confirmed", "rejected"]);
@@ -240,8 +243,15 @@ export const TaskDocSchema = z.object({
   title: z.string().min(1).max(200),
   side: SideSchema,
   owner: WhoSchema, // who claimed it: cam-fable, agent:opus-3 ...
-  paths: z.array(z.string().min(1)).min(1).max(20), // repo-relative files or directory prefixes
+  paths: z.array(z.string().min(1)).max(20), // repo-relative files or directory prefixes; may be empty while proposed
   status: TaskStatusSchema,
+  // Work orders: a task that jam drafted from a captured todo, waiting for a person to accept it.
+  spec: z.string().optional(), // markdown build prompt, ready to hand to a coding agent: goal, context quotes, acceptance criteria
+  item_id: z.string().optional(), // the todo/decision item it came from
+  raw_ids: z.array(z.string()).optional(), // the transcript chunks behind it
+  proposed_by: WhoSchema.optional(), // "jam" for drafted work orders; absent for direct claims
+  suggested_owner: WhoSchema.optional(), // who jam thinks should take it
+  reason: z.string().optional(), // which assignment rule picked the side/owner, in one sentence
   pr: z.string().optional(), // PR number or url once there is one
   note: z.string().optional(),
   created_at: IsoUtcSchema,
@@ -258,6 +268,18 @@ export const TaskClaimRequestSchema = z.object({
   paths: z.array(z.string().min(1)).min(1).max(20),
 });
 export type TaskClaimRequest = z.infer<typeof TaskClaimRequestSchema>;
+
+/**
+ * POST /api/tasks/:id/accept. A person (or an agent told to by one) takes a proposed work order.
+ * It becomes a normal claim: same ownership and overlap checks, 409 TaskConflict if they fail.
+ */
+export const TaskAcceptRequestSchema = z.object({
+  team_id: TeamIdSchema,
+  who: WhoSchema,
+  side: SideSchema.optional(), // defaults to the side jam proposed
+  paths: z.array(z.string().min(1)).min(1).max(20).optional(), // defaults to the paths jam proposed
+});
+export type TaskAcceptRequest = z.infer<typeof TaskAcceptRequestSchema>;
 
 /** 409 from a claim. `overlap`: another open claim holds a path. `wrong_side`: a path belongs to the other side. */
 export const TaskConflictSchema = z.object({

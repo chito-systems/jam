@@ -9,6 +9,7 @@ import { armAudio, playChime, setSound, soundOn } from './chime'
 import { addNote, agentName, ago, clock, formatMs, type Identity, isAgent, type Live, loadIdentity, newlyDone, saveIdentity, searchBrain, sortTasks, threadFor, useLive } from './live'
 import { Mark, type MarkMode, ThemeCtx } from './Mark'
 import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, useTheme } from './parts'
+import { Guide, guideSeen, HelpIcon } from './Guide'
 import { type Outgoing, Talk } from './Talk'
 import { clampPanel, loadPanelHeight, savePanelHeight } from './term'
 import { Terminal } from './Terminal'
@@ -17,9 +18,9 @@ import { Terminal } from './Terminal'
 // agent transcripts yet, so a "session" here is a task claim and what the brain holds about it.
 
 const FEED = 'feed'
-const TASK_STATE: Record<TaskDoc['status'], RunState> = { claimed: 'running', done: 'done', released: 'cancelled' }
-const TASK_LABEL: Record<TaskDoc['status'], string> = { claimed: 'Working', done: 'Done', released: 'Released' }
-const TASK_MARK: Record<TaskDoc['status'], MarkMode> = { claimed: 'working', done: 'still', released: 'idle' }
+const TASK_STATE: Record<TaskDoc['status'], RunState> = { proposed: 'needs_input', claimed: 'running', done: 'done', released: 'cancelled' }
+const TASK_LABEL: Record<TaskDoc['status'], string> = { proposed: 'Proposed', claimed: 'Working', done: 'Done', released: 'Released' }
+const TASK_MARK: Record<TaskDoc['status'], MarkMode> = { proposed: 'waiting', claimed: 'working', done: 'still', released: 'idle' }
 const CAPTURE_LABEL: Record<CaptureStatus['state'], string> = {
   queued: 'queued',
   transcribing: 'transcribing',
@@ -80,6 +81,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
   const [activeId, setActiveId] = useState(FEED)
   const [tab, setTab] = useState<RightTab>('brain')
   const [palette, setPalette] = useState(false)
+  const [guide, setGuide] = useState(() => !guideSeen())
   const [widths, setWidths] = useState({ left: 256, right: 340 })
   const [side, setSide] = useState<'none' | 'left' | 'right'>('none')
   const [now, setNow] = useState(Date.now)
@@ -133,6 +135,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (guide) return
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPalette((p) => !p)
@@ -154,7 +157,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [activeId, order, palette, select, show])
+  }, [activeId, order, palette, guide, select, show])
 
   const drag = (which: 'left' | 'right') => (e: ReactPointerEvent) => {
     e.preventDefault()
@@ -179,6 +182,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
     { label: 'Show claimed files', run: () => show('files') },
     { label: 'Team feed', run: () => select(FEED) },
     { label: theme === 'dark' ? 'Switch to light' : 'Switch to dark', run: flip },
+    { label: 'Open the setup guide', run: () => setGuide(true) },
     { label: 'Change team or name', hint: `${id.team} · ${id.who}`, run: onSignOut },
     ...tasks.map((t) => ({ id: t.id, label: t.title, hint: `${agentName(t.owner)} · ${TASK_LABEL[t.status]}`, agent: t.owner, run: () => select(t.id) })),
   ]
@@ -205,6 +209,9 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
         </button>
         <button type="button" className="icon" aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} onClick={flip}>
           <ThemeIcon theme={theme} />
+        </button>
+        <button type="button" className="icon" aria-label="Open the setup guide" aria-haspopup="dialog" title="Setup guide" onClick={() => setGuide(true)}>
+          <HelpIcon />
         </button>
         <button type="button" className="icon only-narrow" aria-label="Brain pane" onClick={() => setSide(side === 'right' ? 'none' : 'right')}>
           <PaneIcon />
@@ -313,6 +320,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
 
       {side !== 'none' && <button type="button" className="scrim" aria-label="Close pane" onClick={() => setSide('none')} />}
       {palette && <Palette commands={commands} onClose={() => setPalette(false)} />}
+      {guide && <Guide id={id} live={live} onSignOut={onSignOut} onClose={() => setGuide(false)} />}
     </div>
   )
 }

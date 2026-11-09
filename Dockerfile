@@ -35,6 +35,7 @@ WORKDIR /app/apps/api
 USER 1000
 EXPOSE 8080
 ENTRYPOINT ["/sbin/tini", "--"]
-# Same as `pnpm start` (tsx src/main.ts) without a wrapper process: node loads
-# tsx as a module hook, resolved from the workspace root node_modules.
-CMD ["node", "--import", "tsx", "src/main.ts"]
+# Same as `pnpm start` without a wrapper process: node loads tsx as a module
+# hook (resolved from the workspace root node_modules), then the OpenTelemetry
+# bootstrap, then the app.
+CMD ["node", "--import", "tsx", "--import", "./src/otel.ts", "src/main.ts"]

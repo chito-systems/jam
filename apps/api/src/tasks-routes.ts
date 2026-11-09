@@ -16,6 +16,7 @@ import {
   type TasksResponse,
 } from "@hh/shared";
 import type { Context, Hono } from "hono";
+import type { ChaosSwitch } from "./chaos-routes";
 
 export const SLO_TARGET_MS = 10_000;
 
@@ -76,7 +77,11 @@ export function sloFrom(all: CaptureStatus[]): StatsResponse["slo"] {
 export function registerTaskRoutes(
   // biome-ignore lint/suspicious/noExplicitAny: shares the app's env without importing it
   app: Hono<any>,
-  { store, dispatcher }: { store: ContextStore; dispatcher: Dispatcher },
+  {
+    store,
+    dispatcher,
+    chaos,
+  }: { store: ContextStore; dispatcher: Dispatcher; chaos?: ChaosSwitch },
 ) {
   /** Live feed + a searchable brain note. The brain write is best-effort: it never fails the request. */
   async function announce(task: TaskDoc, who: string, text: string) {
@@ -148,7 +153,12 @@ export function registerTaskRoutes(
       store.tasks({ team_id, status: "claimed", limit: 200 }),
       dispatcher.captures(team_id),
     ]);
-    const res: StatsResponse = { ...counts, open_tasks: open.length, slo: sloFrom(captures) };
+    const res: StatsResponse = {
+      ...counts,
+      open_tasks: open.length,
+      slo: sloFrom(captures),
+      chaos: chaos?.get().enabled ?? false,
+    };
     return c.json(res);
   });
 }

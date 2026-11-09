@@ -13,8 +13,8 @@ export interface PipelineDeps {
   store: ContextStore;
   /** Absent = text-only (voice captures fail with a clear error). */
   transcriber?: Transcriber;
-  /** CHAOS_MODE: adds latency and failures to the index step. Off unless exactly true. */
-  chaos?: boolean;
+  /** Chaos switch: adds latency and failures to the index step. A function is read per job (live switch). Off unless it is or returns exactly true. */
+  chaos?: boolean | (() => boolean);
   /** Injectable for tests. Defaults to a real timer. */
   sleep?: (ms: number) => Promise<void>;
   /** Injectable for tests. Defaults to Math.random. */
@@ -86,7 +86,8 @@ function chunk(job: IngestJob, transcript: Transcript | undefined): Promise<RawD
 
 function index(job: IngestJob, docs: RawDoc[], deps: PipelineDeps): Promise<void> {
   return withSpan("ingest.index", { capture_id: job.capture_id, docs: docs.length }, async (span) => {
-    if (deps.chaos === true) {
+    const chaos = typeof deps.chaos === "function" ? deps.chaos() : deps.chaos;
+    if (chaos === true) {
       span.setAttribute("chaos", true);
       await (deps.sleep ?? realSleep)(CHAOS_DELAY_MS);
       if ((deps.random ?? Math.random)() < CHAOS_FAILURE_RATE) {
