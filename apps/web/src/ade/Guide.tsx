@@ -29,8 +29,8 @@ export function guideSeen(): boolean {
 function markSeen() {
   try {
     localStorage.setItem(GUIDE_KEY, 'seen')
-  } catch {
-    // Storage blocked: nothing to remember it in; it opens again next visit.
+  } catch (e) {
+    console.warn('saving jam-guide failed; the guide opens again next visit', e)
   }
 }
 
@@ -269,7 +269,11 @@ export function Guide({ id, live, onSignOut, onClose }: { id: Identity; live: Li
               <code>{cmd}</code>
               <button type="button" className="btn" onClick={() => void copy(cmd, 'agent command')}>{said === 'Copied the agent command.' ? 'Copied' : 'Copy'}</button>
             </div>
-            <p className="dim">{agents ? `The brain has heard from ${agents} ${agents === 1 ? 'agent' : 'agents'}.` : 'No agent has written to the brain yet. It counts after its first note or task claim.'}</p>
+            <p className="dim">{done.agent
+              ? `Your agent is connected. The brain has heard from ${agents} ${agents === 1 ? 'agent' : 'agents'}.`
+              : agents
+                ? `The brain has heard from ${agents} ${agents === 1 ? 'agent' : 'agents'}, but not yours yet. It counts after its first note or task claim.`
+                : 'No agent has written to the brain yet. Yours counts after its first note or task claim.'}</p>
           </Step>
           <Step done={done.terminal} title="Open a terminal here">
             <p>The Terminal tab talks to a small bridge that opens a shell on this computer only. Start it from the repo:</p>
