@@ -1,6 +1,6 @@
 import type { CaptureStatus, ItemDoc, RawDoc, TaskDoc } from '@hh/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { agentName, ago, captainsOf, clock, decisionLogUrl, formatMs, isAgent, itemNewer, loadIdentity, type Member, member, memberLine, mergeNew, newlyDone, pct, pendingCaptures, roster, saveIdentity, sortTasks, taskNewer, threadFor, upsert } from './live'
+import { agentName, ago, captainsOf, clock, decisionLogUrl, formatMs, isAgent, itemNewer, loadIdentity, type Member, member, memberLine, mergeNew, mergeSaid, newlyDone, pct, pendingCaptures, roster, saveIdentity, sortTasks, taskNewer, threadFor, upsert } from './live'
 
 const task = (over: Partial<TaskDoc>): TaskDoc => ({
   team_id: 't1',
@@ -299,5 +299,12 @@ describe('people', () => {
     expect(bot.captain).toBeUndefined()
     expect(bot.assigned).toEqual([])
     expect(jake.agents.map((a) => a.id)).toEqual(['agent:jake'])
+  })
+
+  it('merges a person\'s own page into what the stream delivered, once each, newest first, without task notes', () => {
+    const a = doc({ id: 'a', who: 'cam', at: '2026-11-09T19:01:00.000Z' })
+    const b = doc({ id: 'b', who: 'cam', at: '2026-11-09T19:03:00.000Z' })
+    const note = doc({ id: 'n', who: 'cam', at: '2026-11-09T19:04:00.000Z', source_ref: 'task:k1' })
+    expect(mergeSaid([a], [b, a, note]).map((d) => d.id)).toEqual(['b', 'a'])
   })
 })

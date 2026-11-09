@@ -216,6 +216,16 @@ export function roster(byWho: Record<string, number>, tasks: TaskDoc[], docs: Ra
     .sort((a, b) => score(b) - score(a) || a.who.localeCompare(b.who))
 }
 
+/**
+ * Someone's entries, newest first: what the stream delivered plus their own /api/recent page,
+ * each once. Claim and close notes (source_ref "task:…") are the API's, not theirs.
+ */
+export function mergeSaid(stream: RawDoc[], loaded: RawDoc[]): RawDoc[] {
+  const seen = new Set(stream.map((d) => d.id))
+  const extra = loaded.filter((d) => !seen.has(d.id) && !d.source_ref?.startsWith('task:'))
+  return [...stream, ...extra].sort((a, b) => b.at.localeCompare(a.at))
+}
+
 /** One line for the people list: what they are doing right now. */
 export function memberLine(m: Member): string {
   if (m.working.length === 1) return `on ${m.working[0]?.title}`

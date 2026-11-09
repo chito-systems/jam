@@ -8,7 +8,7 @@ import { agentMode, foldGone, groupAgents, ownerLabel, shortName } from './agent
 import { armAudio, playChime, setSound, soundOn } from './chime'
 import type { RunState } from './data'
 import { Guide, guideSeen, HelpIcon } from './Guide'
-import { addNote, agentName, ago, captainsOf, clock, decisionLogUrl, formatMs, type Identity, isAgent, itemNewer, type Live, loadIdentity, loadOwnership, loadRecent, type Member, member, memberLine, newlyDone, pct, pendingCaptures, roster, sameWho, saveIdentity, searchBrain, setVerdict, threadFor, useLive } from './live'
+import { addNote, agentName, ago, captainsOf, clock, decisionLogUrl, formatMs, type Identity, isAgent, itemNewer, type Live, loadIdentity, loadOwnership, loadRecent, type Member, member, memberLine, mergeSaid, newlyDone, pct, pendingCaptures, roster, sameWho, saveIdentity, searchBrain, setVerdict, threadFor, useLive } from './live'
 import { Mark, type MarkMode, ThemeCtx } from './Mark'
 import { orderFor, proposedOrders, setChaos, workTasks } from './orders'
 import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, useTheme } from './parts'
@@ -230,7 +230,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
   }, [id.team])
   const captains = useMemo(() => captainsOf(own.map), [own.map])
   const members = useMemo(() => roster(live.stats?.by_who ?? {}, live.tasks, live.docs, captains, live.agents), [live.stats, live.tasks, live.docs, captains, live.agents])
-  const person = activeId.startsWith(PERSON) ? members.find((m) => PERSON + m.who === activeId) : undefined
+  const person = activeId.startsWith(PERSON) ? members.find((m) => !isAgent(m.who) && sameWho(m.who, activeId.slice(PERSON.length))) : undefined
   const agent = known.get(activeId)
   const shown = agent ? agent.claims : active ? [active] : open
   const fileCount = shown.reduce((n, t) => n + t.paths.length, 0)
@@ -436,7 +436,7 @@ function Crew({ crew, members, agents, activeId, now, onSelect }: CrewProps) {
       <div className="crew">
         {crew.people.map((p) => (
           <div key={p.human}>
-            <PersonRow who={p.human} line={memberLine(members.find((m) => m.who === p.human) ?? member(p.human, [], []))} active={activeId === PERSON + p.human} onSelect={onSelect} />
+            <PersonRow who={p.human} line={memberLine(members.find((x) => !isAgent(x.who) && sameWho(x.who, p.human)) ?? member(p.human, [], []))} active={activeId.startsWith(PERSON) && sameWho(activeId.slice(PERSON.length), p.human)} onSelect={onSelect} />
             <AgentRows agents={p.agents} activeId={activeId} now={now} onSelect={onSelect} />
           </div>
         ))}
@@ -660,7 +660,7 @@ function useSaid(team: string, m: Member) {
   useEffect(() => {
     let dead = false
     loadRecent(team, m.who)
-      .then((r) => !dead && setLoaded({ who: m.who, docs: r.docs.filter((d) => !d.source_ref?.startsWith('task:')) }))
+      .then((r) => !dead && setLoaded({ who: m.who, docs: r.docs }))
       .catch((e: unknown) => {
         console.error(`loading recent entries for ${m.who} failed`, e)
         if (!dead) setLoaded({ who: m.who, docs: [], error: e instanceof Error ? e.message : 'The API did not answer.' })
@@ -669,9 +669,7 @@ function useSaid(team: string, m: Member) {
       dead = true
     }
   }, [team, m.who])
-  const docs = loaded.who === m.who ? loaded.docs : []
-  const seen = new Set(m.said.map((d) => d.id))
-  const said = [...m.said, ...docs.filter((d) => !seen.has(d.id))].sort((a, b) => b.at.localeCompare(a.at))
+  const said = mergeSaid(m.said, loaded.who === m.who ? loaded.docs : [])
   return { said, loading: loaded.who !== m.who, error: loaded.who === m.who ? loaded.error : undefined }
 }
 
