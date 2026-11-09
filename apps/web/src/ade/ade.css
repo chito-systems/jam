@@ -1671,6 +1671,13 @@
     font: 12px / 1.55 var(--mono);
     white-space: pre-wrap;
   }
+  /* Naming the paths is a normal step, not a failure: ink, never red. */
+  .ask.order-step {
+    border-color: var(--ink);
+  }
+  .ask.order-step .who {
+    color: var(--ink);
+  }
   .order-paths-in {
     display: flex;
     gap: 8px;
