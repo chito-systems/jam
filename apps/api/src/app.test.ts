@@ -242,6 +242,36 @@ describe("api", () => {
     expect(missing.status).toBe(404);
   });
 
+  it("accepts a proposed work order: 200 claimed, feed event, brain note; 400/404/409 otherwise", async () => {
+    const store = new MemoryStore();
+    const { app, jobs, events } = setup(store);
+    const at = "2026-11-09T19:00:00.000Z";
+    const wo = (id: string, paths: string[]): TaskDoc => ({
+      team_id: "t1", id, title: `order ${id}`, side: "backend", owner: "jam", paths, status: "proposed",
+      spec: "# spec", proposed_by: "jam", suggested_owner: "cam", created_at: at, updated_at: at,
+    });
+    await store.upsertTask(wo("wo1", ["apps/api/"]));
+    await store.upsertTask(wo("wo2", ["apps/api/src/app.ts"]));
+    await store.upsertTask(wo("wo3", []));
+    const accept = (id: string, extra: Record<string, unknown> = {}) =>
+      app.request(`/api/tasks/${id}/accept`, post({ team_id: "t1", who: "cam", ...extra }));
+
+    const res = await accept("wo1");
+    expect(res.status).toBe(200);
+    const task = (await res.json()) as TaskDoc;
+    expect(task).toMatchObject({ id: "wo1", status: "claimed", owner: "cam", paths: ["apps/api"], spec: "# spec" });
+    expect(events).toEqual([{ event: "task", data: task }]);
+    expect(jobs[0]).toMatchObject({ who: "cam", source_ref: "task:wo1" });
+    expect(jobs[0]?.text).toBe("[task accepted] order wo1 — cam took the work order jam proposed and is editing apps/api");
+
+    expect((await accept("wo2")).status).toBe(409);
+    expect((await accept("wo1")).status).toBe(400);
+    expect(((await (await accept("wo3")).json()) as { error: string }).error).toContain("no paths yet");
+    expect((await accept("wo3", { paths: ["apps/worker/"] })).status).toBe(200);
+    expect((await accept("nope")).status).toBe(404);
+    expect((await app.request("/api/tasks/wo2/accept", post({ team_id: "t1" }))).status).toBe(400);
+  });
+
   it("lists tasks with filters", async () => {
     const { app } = setup();
     const a = (await (await app.request("/api/tasks", claim(["apps/api/"]))).json()) as TaskDoc;

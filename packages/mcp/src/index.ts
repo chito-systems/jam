@@ -2,6 +2,7 @@
 // Stateless streamable HTTP: a fresh McpServer + transport per request, JSON responses, no sessions.
 // team_id (required), who (default "agent") and side (optional) come from the URL query on every request.
 import {
+  acceptTask,
   type ContextStore,
   claimTask,
   closeTask,
@@ -99,16 +100,31 @@ const fmtHit = (h: SearchHit) =>
   h.layer === "item"
     ? fmtItem(h.doc)
     : [fmtRaw(h.doc), ...h.items.map((i) => fmtItem(i, "    "))].join("\n");
+const fmtPaths = (paths: string[]) => (paths.length > 0 ? paths.join(", ") : "(none yet)");
 const fmtTask = (t: TaskDoc) =>
   [
-    `[${t.status}] ${t.side} · ${t.owner} · ${t.title}`,
-    `  paths: ${t.paths.join(", ")}`,
+    t.status === "proposed"
+      ? `[proposed → ${t.suggested_owner ?? t.side}] ${t.side} · ${t.title}`
+      : `[${t.status}] ${t.side} · ${t.owner} · ${t.title}`,
+    `  paths: ${fmtPaths(t.paths)}`,
     `  id: ${t.id}${t.pr ? ` · pr: ${t.pr}` : ""}`,
   ].join("\n");
 const toolError = (body: string, structured?: Record<string, unknown>): CallToolResult => ({
   ...text(body, structured),
   isError: true,
 });
+/** "agent:cam-opus-2" -> "cam": the person behind a session name. */
+const personOf = (who: string) => who.replace(/^agent:/, "").split("-")[0]?.toLowerCase() ?? "";
+/** Proposed work for this session: named for me first, then my side, oldest first. The other side's work never. */
+export function nextWork(proposed: TaskDoc[], who: string, side?: Side): TaskDoc[] {
+  const me = personOf(who);
+  const named = (t: TaskDoc) => t.suggested_owner !== undefined && personOf(t.suggested_owner) === me;
+  const oldest = (a: TaskDoc, b: TaskDoc) => a.created_at.localeCompare(b.created_at);
+  const mine = proposed.filter(named).sort(oldest);
+  const sides = proposed.filter((t) => !named(t) && side !== undefined && t.side === side).sort(oldest);
+  return [...mine, ...sides];
+}
+const TAKE_IT = "To take it: task_accept with this id (add paths if none are listed). If it isn't yours to take, leave it.";
 const sideArg = SideSchema.optional().describe("Only from this half of the team: backend or frontend");
 
 function buildServer(deps: McpDeps, caller: Caller): McpServer {
@@ -292,6 +308,78 @@ function buildServer(deps: McpDeps, caller: Caller): McpServer {
   );
 
   server.registerTool(
+    "task_next",
+    {
+      description:
+        "Call when you have no assigned work, or when a human says to pick up the next thing. Returns the best open work order for your side with its full build prompt.",
+      inputSchema: {},
+    },
+    () =>
+      run("task_next", caller, async () => {
+        const proposed = await store.tasks({ team_id, status: "proposed", limit: 200 });
+        const [task] = nextWork(proposed, caller.who, caller.side);
+        if (!task) return text("No proposed work for your side.", { task: null });
+        return text(
+          [
+            `Work order: ${task.title}`,
+            `id: ${task.id}`,
+            `proposed paths: ${fmtPaths(task.paths)}`,
+            `why you: ${task.reason ?? "(no reason given)"}`,
+            "",
+            task.spec ?? "(no build prompt)",
+            "",
+            TAKE_IT,
+          ].join("\n"),
+          { task },
+        );
+      }),
+  );
+
+  server.registerTool(
+    "task_accept",
+    {
+      description:
+        "Take a proposed work order. Only call after a human told you to, or when the work order names you.",
+      inputSchema: {
+        id: z.string().min(1).describe("The work order id, from task_next or task_list"),
+        paths: z
+          .array(z.string().min(1))
+          .min(1)
+          .max(20)
+          .optional()
+          .describe("Repo-relative files or directories you will edit. Defaults to the proposed paths"),
+      },
+    },
+    ({ id, paths }) =>
+      run("task_accept", caller, async () => {
+        const res = await acceptTask(store, id, { team_id, who: me, side: caller.side, paths });
+        if (!res.ok) {
+          if ("notFound" in res) return toolError(`No task ${id} on team ${team_id}. Check the id with task_list.`);
+          if ("error" in res) return toolError(`Refused: ${res.error}`);
+          const lines = res.conflict.conflicts.map(
+            (t) => `- ${t.owner}: "${t.title}" holds ${t.paths.join(", ")} (task ${t.id})`,
+          );
+          return toolError([`Refused: ${res.conflict.error}`, ...lines].join("\n"), { conflict: res.conflict });
+        }
+        const { task } = res;
+        await announce(
+          task,
+          `[task accepted] ${task.title} — ${task.owner} took the work order jam proposed and is editing ${task.paths.join(", ")}`,
+        );
+        return text(
+          [
+            `Accepted task ${task.id}, you hold ${task.paths.join(", ")}.`,
+            "",
+            task.spec ?? "(no build prompt)",
+            "",
+            `Call task_done with id ${task.id} when your PR is open (or released: true if you abandon it).`,
+          ].join("\n"),
+          { task },
+        );
+      }),
+  );
+
+  server.registerTool(
     "task_done",
     {
       description:
@@ -321,16 +409,19 @@ function buildServer(deps: McpDeps, caller: Caller): McpServer {
     {
       description: "See who is working on what right now. Call before planning work, so you pick paths nobody holds.",
       inputSchema: {
-        status: TaskStatusSchema.optional().describe("Default claimed (open work). done or released for history"),
+        status: TaskStatusSchema.optional().describe(
+          "Default: claimed (open work) and proposed (work orders nobody has taken). done or released for history",
+        ),
         side: SideSchema.optional().describe("Only backend or frontend tasks"),
       },
     },
     ({ status, side }) =>
       run("task_list", caller, async () => {
-        const want = status ?? "claimed";
-        const tasks = await store.tasks({ team_id, status: want, side, limit: 200 });
+        const wants = status ? [status] : (["claimed", "proposed"] as const);
+        const lists = await Promise.all(wants.map((s) => store.tasks({ team_id, status: s, side, limit: 200 })));
+        const tasks = lists.flat();
         if (tasks.length === 0) {
-          return text(want === "claimed" ? "No open claims." : `No ${want} tasks.`, { tasks: [] });
+          return text(status ? `No ${status} tasks.` : "No open claims or proposed work.", { tasks: [] });
         }
         return text(tasks.map(fmtTask).join("\n\n"), { tasks });
       }),
