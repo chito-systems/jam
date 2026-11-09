@@ -7,6 +7,7 @@ import {
   type ItemDoc,
   type ItemKind,
   ItemKindSchema,
+  MAX_RAW_BY_IDS,
   type RawDoc,
   ROUTES,
 } from "@hh/shared";
@@ -66,11 +67,14 @@ function clip(text: string): string {
   return `${(space > QUOTE_MAX * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
 
-function quotes(item: ItemDoc, raws: Map<string, RawDoc>, prefix = ""): string[] {
+/** `seen`: chunks already quoted in this response; repeats get a back-reference instead of the full quote. */
+function quotes(item: ItemDoc, raws: Map<string, RawDoc>, seen: Set<string>, prefix = ""): string[] {
   if (item.raw_ids.length === 0) return [`${prefix}> (source chunk not found)`];
   return item.raw_ids.map((id) => {
     const r = raws.get(id);
     if (!r) return `${prefix}> (source chunk not found) (${code(id)})`;
+    if (seen.has(id)) return `${prefix}> same source as above (${code(id)})`;
+    seen.add(id);
     const said = escapeInline(clip(r.text));
     return `${prefix}> "${said}" — ${escapeInline(r.who)}, ${denverSeconds(r.at)}, ${r.type} (${code(r.id)})`;
   });
@@ -97,6 +101,7 @@ export function renderDecisionLog(input: {
   raws: Map<string, RawDoc>;
 }): string {
   const { team_id, now, sections, raws } = input;
+  const seen = new Set<string>();
   const all = sections.flatMap((s) => s.items);
   const multiDay = new Set(all.map((i) => dayFmt.format(new Date(i.at)))).size > 1;
   const when = (iso: string) =>
@@ -116,24 +121,28 @@ export function renderDecisionLog(input: {
     const superseded = decisions.filter((d) => d.status === "superseded").length;
     const noun = decisions.length === 1 ? "decision" : "decisions";
     out.push(`**${decisions.length} ${noun}** · ${superseded} superseded`, "");
+    if (decisions.length >= LIMIT) {
+      out.push(`_Showing the newest ${LIMIT} decisions; older ones exist and are not listed._`, "");
+    }
     for (const d of decisions) {
       const head = `${when(d.at)} — ${escapeInline(d.text)}`;
       const by = `**${escapeInline(d.who)}**`;
       const tags = d.tags.length ? ` · tags: ${d.tags.map(code).join(" ")}` : "";
       if (d.status === "superseded") out.push(`## ~~${head}~~`, `Superseded · decided by ${by}${tags}`);
       else out.push(`## ${head}`, `Decided by ${by}${tags}`);
-      for (const q of quotes(d, raws)) out.push("", q);
+      for (const q of quotes(d, raws, seen)) out.push("", q);
       out.push("");
     }
   }
 
   for (const { kind, items } of sections) {
     if (kind === "decision") continue;
-    out.push("---", "", `## ${SECTION_TITLES[kind]} (${items.length})`, "");
+    const more = items.length >= LIMIT ? `, newest ${LIMIT} shown` : "";
+    out.push("---", "", `## ${SECTION_TITLES[kind]} (${items.length}${more})`, "");
     if (items.length === 0) out.push("None right now.", "");
     for (const i of [...items].sort(oldestFirst)) {
       out.push(`- ${when(i.at)} — ${escapeInline(i.text)} — **${escapeInline(i.who)}**`);
-      for (const q of quotes(i, raws, "  ")) out.push(q);
+      for (const q of quotes(i, raws, seen, "  ")) out.push(q);
       out.push("");
     }
   }
@@ -160,7 +169,11 @@ export function registerDecisionRoutes(
       })),
     );
     const ids = [...new Set(sections.flatMap((s) => s.items.flatMap((i) => i.raw_ids)))];
-    const raws = new Map((await store.rawByIds(team_id, ids)).map((r) => [r.id, r]));
+    // Batched so every referenced id gets looked up: "not found" must only ever mean not found.
+    const raws = new Map<string, RawDoc>();
+    for (let n = 0; n < ids.length; n += MAX_RAW_BY_IDS) {
+      for (const r of await store.rawByIds(team_id, ids.slice(n, n + MAX_RAW_BY_IDS))) raws.set(r.id, r);
+    }
     const md = renderDecisionLog({ team_id, now: now(), sections, raws });
     return c.body(md, 200, { "content-type": "text/markdown; charset=utf-8" });
   });

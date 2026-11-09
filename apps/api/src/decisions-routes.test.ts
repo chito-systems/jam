@@ -105,11 +105,53 @@ describe("GET /api/decisions.md", () => {
     const { md } = await (await seeded()).get("?team_id=t1&kinds=todo,question");
     expect(md).toContain("## Open todos (1)");
     expect(md).toContain("- 1:00 PM — Write the demo script. — **cam**");
-    expect(md).toContain('  > "ok let\'s just use');
+    expect(md).toContain("  > same source as above (`a:0`)");
     expect(md).not.toContain("Done thing.");
     expect(md).toContain("## Open questions (1)");
     expect(md).toContain("  > (source chunk not found)");
     expect(md.indexOf("Open todos")).toBeGreaterThan(md.indexOf("Ship the README"));
+  });
+
+  it("quotes a chunk once per response and back-references repeats", async () => {
+    const { md } = await (
+      await setup(
+        [raw("s:0", "one chunk, two decisions", "2026-11-09T20:00:00.000Z")],
+        [
+          item("d1", "First.", "2026-11-09T20:00:00.000Z", { raw_ids: ["s:0"] }),
+          item("d2", "Second.", "2026-11-09T20:01:00.000Z", { raw_ids: ["s:0"] }),
+        ],
+      )
+    ).get("?team_id=t1");
+    expect(md.split('> "one chunk, two decisions"').length - 1).toBe(1);
+    expect(md.indexOf("> same source as above (`s:0`)")).toBeGreaterThan(md.indexOf("Second."));
+  });
+
+  it("flags truncation at 200 decisions and not below", async () => {
+    const at = (n: number) => new Date(Date.UTC(2026, 10, 9, 15, 0, 0, n)).toISOString();
+    const many = (count: number) =>
+      Array.from({ length: count }, (_, n) => item(`d${n}`, `Decision ${n}.`, at(n)));
+    const note = "_Showing the newest 200 decisions; older ones exist and are not listed._";
+    expect((await (await setup([], many(201))).get("?team_id=t1")).md).toContain(note);
+    expect((await (await setup([], many(199))).get("?team_id=t1")).md).not.toContain(note);
+  });
+
+  it("looks up every raw id in batches of 500, so found chunks are never 'not found'", async () => {
+    const ids = Array.from({ length: 600 }, (_, n) => `r${n}:0`);
+    const { store, get } = await setup(
+      ids.map((id) => raw(id, `chunk ${id}`, "2026-11-09T20:00:00.000Z")),
+      [item("d", "Big one.", "2026-11-09T20:00:00.000Z", { raw_ids: ids })],
+    );
+    const sizes: number[] = [];
+    const real = store.rawByIds.bind(store);
+    // Behave like ElasticStore: anything past the cap is never looked up.
+    store.rawByIds = async (team, batch) => {
+      sizes.push(batch.length);
+      return real(team, batch.slice(0, 500));
+    };
+    const { md } = await get("?team_id=t1");
+    expect(sizes).toEqual([500, 100]);
+    expect(md).not.toContain("not found");
+    expect(md).toContain("(`r599:0`)");
   });
 
   it("rejects unknown kinds", async () => {
