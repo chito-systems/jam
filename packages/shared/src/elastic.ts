@@ -162,6 +162,9 @@ function esErrorType(err: unknown): string | undefined {
   return body?.error?.type;
 }
 
+/** Cap for one provenance lookup: well under index.max_result_window, plenty for one page of items. */
+export const MAX_RAW_BY_IDS = 500;
+
 let warnedKeywordFallback = false;
 
 export class ElasticStore implements ContextStore {
@@ -331,6 +334,17 @@ export class ElasticStore implements ContextStore {
       size: params.limit,
       query: { bool: { filter } },
       sort: [{ at: "desc" }, { seq: "desc" }],
+    });
+    return res.hits.hits.map((h) => RawDocSchema.parse(h._source));
+  }
+
+  async rawByIds(team_id: string, ids: string[]): Promise<RawDoc[]> {
+    const unique = [...new Set(ids)].slice(0, MAX_RAW_BY_IDS);
+    if (unique.length === 0) return [];
+    const res = await this.client.search({
+      index: this.opts.rawIndex,
+      size: unique.length,
+      query: { bool: { filter: [{ term: { team_id } }, { terms: { id: unique } }] } },
     });
     return res.hits.hits.map((h) => RawDocSchema.parse(h._source));
   }
