@@ -1,6 +1,6 @@
 # AGENTS.md — Hack Harness
 
-Rules for every coding agent and human in this repo. Read order: this file → PROJECT.md → NOW.md → Issue #1 (the Board). The pitch lives in PITCH.md. Keep this file short.
+Rules for every coding agent and human in this repo. Read order: this file → PROJECT.md → NOW.md → Issue #2 (the Board). The pitch lives in PITCH.md. Keep this file short.
 
 ## Context
 - Cloud Native Hackathon, Salt Lake City, 2026-11-09. Submission deadline **5:30 PM MT**. Freeze at 4:30.
@@ -34,14 +34,14 @@ git push -u origin HEAD
 gh pr create --fill --label stream:<X>
 # Gitar reviews. Address every comment or reply with why not.
 gh pr merge --auto --squash          # lands via merge queue when Gitar + CI are green
-gh issue comment 1 --body "<Stream>: <what landed> in #<pr>. Next: <thing>. Blocked: <none|what>"
+gh issue comment 2 --body "<Stream>: <what landed> in #<pr>. Next: <thing>. Blocked: <none|what>"
 ```
 - One feature per PR, **under 300 lines of diff**. Bigger → split.
 - Pull `main` before every branch. Rebase, don't merge, if behind.
 - No tests for what you changed? Add one. CI runs typecheck, lint, tests: `pnpm check` runs the same thing locally.
 - Only `gh pr merge --auto` lands code. Nobody pushes to `main`. Nobody force-pushes anywhere.
 
-## The Board (Issue #1, pinned)
+## The Board (Issue #2, pinned)
 Post when you land something, when you're blocked for more than 10 minutes, or when you need another stream. Format: `<Stream>: <one line>. Next: <one line>. Blocked: <none|what>`. Tag humans with @. Humans read it every 30 minutes. Board posts are ingested into the brain.
 
 ## Hard rules

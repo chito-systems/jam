@@ -1,6 +1,6 @@
 # NOW.md — one screen, always current
 
-Agents: read on start. Humans: update when something changes. Live status lives on the Board (Issue #1); this file is the pitch, the decisions, and the clock.
+Agents: read on start. Humans: update when something changes. Live status lives on the Board (Issue #2); this file is the pitch, the decisions, and the clock.
 
 ## Pitch (one sentence)
 Hack Harness is an open-source Agent Development Environment for hackathon teams: one shared context brain, one safe merge path for humans and agents, one focus-first interface.
@@ -36,7 +36,7 @@ Capture what the team says, make it searchable in under 10 seconds, give every a
 - Dash0: ___
 - Radar Cloud: ___
 - Gitar: ___
-- Board: Issue #1
+- Board: Issue #2
 
 ## Credits at kickoff
 - Cam Claude: ___   Jake Claude: ___   OpenAI codes: Cam ___ Jake ___

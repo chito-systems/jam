@@ -19,7 +19,7 @@
 - Every change is a PR. Gitar reviews against `.gitar/review/` conventions. Auto-apply fixes CI.
 - Merge queue: PRs that pass Gitar + CI are merged in order by the designated merge agent. Humans see the queue in the ADE.
 - Ownership table in AGENTS.md (stream, label, owner, scope) stops agents editing the same files.
-- Board: pinned GitHub Issue #1 is the team channel; agents post and tag; it's indexed into the brain too.
+- Board: pinned GitHub Issue #2 is the team channel; agents post and tag; it's indexed into the brain too.
 
 ### 3. Focus-first interface — the "brainrot IDE"
 - One window: panes for Brain (search + recent context), Board, Merge queue, Agents (what each agent is doing now), Clock (deadline countdown).
@@ -44,7 +44,7 @@
 - Deployed to `team-<name>` namespace on Radar's cluster. Single Deployment for web+api, one for worker. Requests/limits set. Readiness probes.
 
 ## Scope knife
-- **By 1:00 (skeleton):** voice → transcript → Elastic → searchable in the UI. Deployed. Board pane reading Issue #1. Gitar installed, PRs flowing.
+- **By 1:00 (skeleton):** voice → transcript → Elastic → searchable in the UI. Deployed. Board pane reading Issue #2. Gitar installed, PRs flowing.
 - **By 3:00:** MCP context server used by your own agents. Merge queue view. Agents pane via Radar. OTel into Dash0.
 - **By 4:30:** Feed pane, Monaco pane, SLO + chaos, polish. Freeze.
 - **Cut first if behind:** Monaco pane → Feed pane → Agents pane. Never cut: voice→brain→search, Gitar PR flow, deployed on Radar.
