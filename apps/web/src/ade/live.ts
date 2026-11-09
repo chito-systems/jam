@@ -1,15 +1,19 @@
 // The live data layer: everything the ADE shows on main comes from the API through here.
 // Types only from @hh/shared: a value import would pull the Elasticsearch client into the bundle.
 import type {
+  AgentDoc,
+  AgentsResponse,
   CaptureStatus,
   ChaosState,
   IngestResponse,
   ItemDoc,
-  ItemVerdict,
   ItemsResponse,
+  ItemVerdict,
+  OwnershipMapResponse,
   RawDoc,
   RecentResponse,
   SearchResponse,
+  Side,
   StatsResponse,
   TaskDoc,
   TasksResponse,
@@ -118,6 +122,130 @@ export function newlyDone(prev: TaskDoc[], next: TaskDoc[]): TaskDoc[] {
   return next.filter((t) => t.status === 'done' && was.has(t.id) && was.get(t.id) !== 'done')
 }
 
+// ---------- people ----------
+
+/** side -> captain, from GET /api/ownership (the server's JAM_ROSTER). */
+export type Captains = Partial<Record<Side, string>>
+
+export function captainsOf(own: OwnershipMapResponse | undefined): Captains {
+  const out: Captains = {}
+  for (const s of own?.sides ?? []) if (s.captain) out[s.side] = s.captain
+  return out
+}
+
+/** Work orders name people without the agent prefix and in lower case. */
+export const sameWho = (a: string, b: string) => agentName(a).toLowerCase() === agentName(b).toLowerCase()
+
+export type Member = {
+  who: string
+  /** For an agent: its presence from GET /api/agents (state, last tool, who it works for). */
+  agent?: AgentDoc
+  /** For a person: the agents that work for them. */
+  agents: AgentDoc[]
+  /** Claimed now: the files they are editing. */
+  working: TaskDoc[]
+  /** Proposed work orders jam suggested for them, waiting to be accepted. */
+  assigned: TaskDoc[]
+  finished: TaskDoc[]
+  /** Their side: the roster's word for a captain, otherwise read from their tasks and captures. */
+  side?: Side
+  /** The side they captain, per the server roster. */
+  captain?: Side
+  /** Paths they hold across open claims. */
+  holding: string[]
+  said: RawDoc[]
+  inBrain: number
+}
+
+export function member(who: string, tasks: TaskDoc[], docs: RawDoc[], inBrain = 0, captains: Captains = {}, agents: AgentDoc[] = []): Member {
+  const helpers = isAgent(who) ? [] : agents.filter((a) => !!a.human && sameWho(a.human, who))
+  // A person's work includes what their agents claimed for them.
+  const by = new Set([who, ...helpers.map((a) => a.id)])
+  const mine = sortTasks(tasks.filter((t) => t.status !== 'proposed' && by.has(t.owner)))
+  const working = mine.filter((t) => t.status === 'claimed')
+  const assigned = tasks.filter((t) => t.status === 'proposed' && !!t.suggested_owner && sameWho(t.suggested_owner, who))
+  const said = docs.filter((d) => d.who === who && !d.source_ref?.startsWith('task:'))
+  // Open claims count most, then work jam's roster routed to them, then finished work, then
+  // which half of the team their captures came from.
+  const votes: Record<Side, number> = { backend: 0, frontend: 0 }
+  for (const t of working) votes[t.side] += 3
+  for (const t of assigned) votes[t.side] += 2
+  for (const t of mine) votes[t.side] += 1
+  for (const d of said) if (d.side) votes[d.side] += 0.5
+  const captain = (Object.keys(captains) as Side[]).find((k) => sameWho(captains[k] ?? '', who))
+  const guess = votes.backend || votes.frontend ? (votes.backend >= votes.frontend ? 'backend' : 'frontend') : undefined
+  const side = captain ?? guess
+  return {
+    who,
+    agent: agents.find((a) => a.id === who),
+    agents: helpers,
+    working,
+    assigned,
+    finished: mine.filter((t) => t.status === 'done'),
+    side,
+    captain,
+    holding: [...new Set(working.flatMap((t) => t.paths))],
+    said,
+    inBrain,
+  }
+}
+
+/**
+ * Everyone the team has heard from or handed work to: brain authors, claim owners, side captains
+ * and people jam suggested work orders for. Busiest first. jam itself only drafts, so it is left out.
+ */
+export function roster(byWho: Record<string, number>, tasks: TaskDoc[], docs: RawDoc[], captains: Captains = {}, agents: AgentDoc[] = []): Member[] {
+  const names = new Set(Object.keys(byWho))
+  const addName = (n: string) => ![...names].some((x) => sameWho(x, n)) && names.add(n)
+  for (const t of tasks) {
+    if (t.status !== 'proposed') names.add(t.owner)
+    else if (t.suggested_owner) addName(t.suggested_owner)
+  }
+  for (const c of Object.values(captains)) if (c) addName(c)
+  for (const a of agents) {
+    if (a.state !== 'gone') names.add(a.id)
+    if (a.human) addName(a.human)
+  }
+  names.delete('jam')
+  const score = (m: Member) => m.working.length * 1000 + m.assigned.length * 100 + m.inBrain
+  return [...names]
+    .map((who) => member(who, tasks, docs, byWho[who] ?? 0, captains, agents))
+    .sort((a, b) => score(b) - score(a) || a.who.localeCompare(b.who))
+}
+
+/** People first, each followed by the agents that work for them; agents with no known person last. */
+export function grouped(members: Member[]): { m: Member; under?: string }[] {
+  const byId = new Map(members.map((m) => [m.who, m]))
+  const placed = new Set<string>()
+  const out: { m: Member; under?: string }[] = []
+  for (const m of members) {
+    if (isAgent(m.who) && m.agent?.human && members.some((p) => !isAgent(p.who) && sameWho(p.who, m.agent?.human ?? ''))) continue
+    if (isAgent(m.who)) continue
+    out.push({ m })
+    placed.add(m.who)
+    for (const a of m.agents) {
+      const am = byId.get(a.id)
+      if (am && !placed.has(am.who)) {
+        out.push({ m: am, under: m.who })
+        placed.add(am.who)
+      }
+    }
+  }
+  for (const m of members) if (!placed.has(m.who)) out.push({ m })
+  return out
+}
+
+/** One line for the people list: what they are doing right now. */
+export function memberLine(m: Member): string {
+  if (m.working.length === 1) return `on ${m.working[0]?.title}`
+  if (m.working.length > 1) return `${m.working.length} tasks open`
+  if (m.assigned.length) return `${m.assigned.length} assigned`
+  const live = m.agents.filter((a) => a.state === 'active').length
+  if (live) return `${live} ${live === 1 ? 'agent' : 'agents'} active`
+  if (m.agent) return m.agent.last_tool ? `${m.agent.state} · last ${m.agent.last_tool}` : m.agent.state
+  return m.inBrain ? `${m.inBrain} in brain` : 'quiet'
+}
+
 export function formatMs(ms: number | undefined): string {
   if (ms === undefined) return 'n/a'
   return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`
@@ -170,6 +298,21 @@ async function getJson<T>(path: string, params: Record<string, string | number>)
 
 export function searchBrain(team: string, q: string): Promise<SearchResponse> {
   return getJson<SearchResponse>('/api/search', { team_id: team, q, limit: 20 })
+}
+
+/** Which side owns which paths, and each side's captain. */
+/** The team's coding agents: presence, who each works for, last tool. There is no SSE event for it, so poll. */
+export function loadAgents(team: string): Promise<AgentsResponse> {
+  return getJson<AgentsResponse>('/api/agents', { team_id: team })
+}
+
+export function loadOwnership(team: string): Promise<OwnershipMapResponse> {
+  return getJson<OwnershipMapResponse>('/api/ownership', { team_id: team })
+}
+
+/** One person's own recent entries, so someone quiet lately still shows what they said. */
+export function loadRecent(team: string, who: string): Promise<RecentResponse> {
+  return getJson<RecentResponse>('/api/recent', { team_id: team, who, limit: 20 })
 }
 
 export async function addNote(id: Identity, text: string): Promise<IngestResponse> {
