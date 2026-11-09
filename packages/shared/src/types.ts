@@ -15,6 +15,7 @@ export const ROUTES = {
   taskClose: "/api/tasks/:id/close", // POST TaskCloseRequest -> TaskDoc
   stats: "/api/stats", // GET ?team_id= -> StatsResponse (the dashboard's numbers)
   itemVerdict: "/api/items/:id/verdict", // POST ItemVerdictRequest -> ItemDoc (a human confirms or rejects what the librarian extracted)
+  chaos: "/api/chaos", // GET -> ChaosState · POST ChaosRequest -> ChaosState (demo switch: slows and fails the index step)
   decisionsMd: "/api/decisions.md", // GET ?team_id= -> text/markdown: the decision log, each entry quoting the raw chunks it came from
   mcp: "/mcp", // MCP streamable HTTP: /mcp?team_id=<code>&who=<agent name>&side=<backend|frontend>
   healthz: "/healthz",
@@ -289,6 +290,25 @@ export type TasksParams = z.infer<typeof TasksParamsSchema>;
 export const TasksResponseSchema = z.object({ tasks: z.array(TaskDocSchema) });
 export type TasksResponse = z.infer<typeof TasksResponseSchema>;
 
+// ---------- Chaos (the demo's failure switch) ----------
+/**
+ * When enabled, the worker's index step waits 3 s and fails 20% of the time.
+ * Off by default. The UI must show a visible CHAOS label whenever `enabled` is true.
+ */
+export const ChaosStateSchema = z.object({
+  enabled: z.boolean(),
+  changed_at: IsoUtcSchema.optional(),
+  changed_by: WhoSchema.optional(),
+});
+export type ChaosState = z.infer<typeof ChaosStateSchema>;
+
+export const ChaosRequestSchema = z.object({
+  team_id: TeamIdSchema,
+  who: WhoSchema,
+  enabled: z.boolean(),
+});
+export type ChaosRequest = z.infer<typeof ChaosRequestSchema>;
+
 // ---------- Dashboard ----------
 const CountsSchema = z.record(z.string(), z.number());
 
@@ -300,6 +320,7 @@ export const StatsResponseSchema = z.object({
   by_type: CountsSchema,
   by_side: CountsSchema,
   open_tasks: z.number(),
+  chaos: z.boolean().optional(), // true while the chaos switch is on
   // Time from "API received it" to "searchable", over this process's recent captures.
   slo: z.object({
     target_ms: z.number(),
@@ -317,7 +338,8 @@ export type FeedEvent =
   | { event: "raw"; data: RawDoc } // a chunk just became searchable
   | { event: "item"; data: ItemDoc } // the librarian extracted or updated something
   | { event: "capture"; data: CaptureStatus } // a capture changed state
-  | { event: "task"; data: TaskDoc }; // a task was claimed, finished or released
+  | { event: "task"; data: TaskDoc } // a task was claimed, finished or released
+  | { event: "chaos"; data: ChaosState }; // someone flipped the chaos switch
 
 /** Every non-2xx JSON response. */
 export const ApiErrorSchema = z.object({ error: z.string(), detail: z.unknown().optional() });
