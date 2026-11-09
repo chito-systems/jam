@@ -183,7 +183,7 @@ export function WorkOrder({ task, id, onPut, onDismissed }: Props) {
           </p>
         )}
         {problem?.kind === 'paths' && (
-          <form className="ask order-problem" onSubmit={submitPaths}>
+          <form className="ask order-problem order-step" onSubmit={submitPaths}>
             <span className="who">Which files will you edit?</span>
             <p>jam didn't propose any paths for this one. Name the files or folders you'll hold, then accept.</p>
             <div className="order-paths-in">

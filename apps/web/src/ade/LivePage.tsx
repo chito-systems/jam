@@ -129,7 +129,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
   const proposed = active?.status === 'proposed' ? active : undefined
   const open = tasks.filter((t) => t.status === 'claimed')
   const order = useMemo(() => [FEED, ...orders.map((t) => t.id), ...tasks.map((t) => t.id)], [orders, tasks])
-  const [chaosAsk, setChaosAsk] = useState(false)
+  const [chaosAsk, setChaosAsk] = useState<ChaosAsk>(null)
 
   const select = useCallback((next: string) => {
     setActiveId(next)
@@ -189,7 +189,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
     { label: 'Search the brain', hint: '/', run: () => show('brain') },
     { label: 'Show claimed files', run: () => show('files') },
     { label: 'Open the decision log', hint: 'markdown', run: () => window.open(decisionLogUrl(id.team), '_blank', 'noopener') },
-    { label: live.stats?.chaos ? 'Turn chaos off' : 'Turn chaos on', hint: 'demo', run: () => setChaosAsk(true) },
+    { label: live.stats?.chaos ? 'Turn chaos off' : 'Turn chaos on', hint: 'demo', run: () => setChaosAsk(live.stats?.chaos ? 'off' : 'on') },
     { label: 'Team feed', run: () => select(FEED) },
     { label: theme === 'dark' ? 'Switch to light' : 'Switch to dark', run: flip },
     { label: 'Open the setup guide', run: () => setGuide(true) },
@@ -378,7 +378,9 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
 
 // ---------- chaos switch (a demo tool: quiet in the status bar, confirm before turning it on) ----------
 
-type ChaosProps = { id: Identity; on: boolean; ready: boolean; ask: boolean; setAsk: (v: boolean) => void; onState: (c: ChaosState) => void }
+/** What someone asked the switch to do. Kept as an intent, so chaos turned on elsewhere never trips an "off". */
+type ChaosAsk = 'on' | 'off' | null
+type ChaosProps = { id: Identity; on: boolean; ready: boolean; ask: ChaosAsk; setAsk: (v: ChaosAsk) => void; onState: (c: ChaosState) => void }
 
 function ChaosSwitch({ id, on, ready, ask, setAsk, onState }: ChaosProps) {
   const [busy, setBusy] = useState(false)
@@ -389,7 +391,7 @@ function ChaosSwitch({ id, on, ready, ask, setAsk, onState }: ChaosProps) {
       setError('')
       try {
         onState(await setChaos(id, enabled))
-        setAsk(false)
+        setAsk(null)
       } catch (e) {
         console.error(`turning chaos ${enabled ? 'on' : 'off'} failed`, e)
         setError(e instanceof Error ? e.message : 'The API did not answer.')
@@ -398,12 +400,15 @@ function ChaosSwitch({ id, on, ready, ask, setAsk, onState }: ChaosProps) {
     },
     [id, onState, setAsk],
   )
-  // Turning it off needs no confirm; the palette asks the same way the button does.
+  // Turning it off needs no confirm. An ask that the world already answered (someone else
+  // switched it while the confirm was open) just closes.
   useEffect(() => {
-    if (ask && on && !busy && !error) void flip(false)
-  }, [ask, on, busy, error, flip])
+    if (busy || error) return
+    if (ask === 'off' && on) void flip(false)
+    else if ((ask === 'off' && !on) || (ask === 'on' && on)) setAsk(null)
+  }, [ask, on, busy, error, flip, setAsk])
   const close = () => {
-    setAsk(false)
+    setAsk(null)
     setError('')
   }
   if (!ready) return null
@@ -415,11 +420,11 @@ function ChaosSwitch({ id, on, ready, ask, setAsk, onState }: ChaosProps) {
         aria-haspopup="dialog"
         title={on ? 'Turn the chaos switch off' : 'Demo tool: make indexing slow and flaky'}
         disabled={busy}
-        onClick={() => (on ? void flip(false) : setAsk(!ask))}
+        onClick={() => (on ? void flip(false) : setAsk(ask === 'on' ? null : 'on'))}
       >
         {busy ? 'chaos…' : on ? 'chaos on' : 'chaos off'}
       </button>
-      {(ask && !on) || error ? (
+      {(ask === 'on' && !on) || error ? (
         <div className="chaos-pop" role="dialog" aria-label="Chaos switch" onKeyDown={(e) => e.key === 'Escape' && close()}>
           {!on && (
             <>
