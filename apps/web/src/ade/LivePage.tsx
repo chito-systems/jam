@@ -1,4 +1,4 @@
-import type { CaptureStatus, ItemDoc, ItemVerdict, RawDoc, SearchHit, TaskDoc } from '@hh/shared'
+import type { CaptureStatus, ChaosState, ItemDoc, ItemVerdict, RawDoc, SearchHit, TaskDoc } from '@hh/shared'
 import { type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
@@ -6,13 +6,15 @@ import '@fontsource/bricolage-grotesque/800.css'
 import './ade.css'
 import type { RunState } from './data'
 import { armAudio, playChime, setSound, soundOn } from './chime'
-import { addNote, agentName, ago, clock, decisionLogUrl, formatMs, type Identity, isAgent, itemNewer, type Live, loadIdentity, newlyDone, pct, pendingCaptures, saveIdentity, searchBrain, setVerdict, sortTasks, threadFor, useLive } from './live'
+import { addNote, agentName, ago, clock, decisionLogUrl, formatMs, type Identity, isAgent, itemNewer, type Live, loadIdentity, newlyDone, pct, pendingCaptures, saveIdentity, searchBrain, setVerdict, threadFor, useLive } from './live'
 import { Mark, type MarkMode, ThemeCtx } from './Mark'
 import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, useTheme } from './parts'
 import { Guide, guideSeen, HelpIcon } from './Guide'
 import { type Outgoing, Talk } from './Talk'
 import { clampPanel, loadPanelHeight, savePanelHeight } from './term'
 import { Terminal } from './Terminal'
+import { orderFor, proposedOrders, setChaos, workTasks } from './orders'
+import { OrderStrip, WorkOrder } from './WorkOrder'
 
 // The ADE on real data. The API has tasks, brain entries, captures and stats; it has no
 // agent transcripts yet, so a "session" here is a task claim and what the brain holds about it.
@@ -121,10 +123,13 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
   }
   const track = useCallback((o: Outgoing) => setOutgoing((list) => [o, ...list.filter((x) => x.key !== o.key)].slice(0, 20)), [])
 
-  const tasks = useMemo(() => sortTasks(live.tasks), [live.tasks])
-  const active = tasks.find((t) => t.id === activeId)
+  const orders = useMemo(() => proposedOrders(live.tasks), [live.tasks])
+  const tasks = useMemo(() => workTasks(live.tasks), [live.tasks])
+  const active = live.tasks.find((t) => t.id === activeId)
+  const proposed = active?.status === 'proposed' ? active : undefined
   const open = tasks.filter((t) => t.status === 'claimed')
-  const order = useMemo(() => [FEED, ...tasks.map((t) => t.id)], [tasks])
+  const order = useMemo(() => [FEED, ...orders.map((t) => t.id), ...tasks.map((t) => t.id)], [orders, tasks])
+  const [chaosAsk, setChaosAsk] = useState(false)
 
   const select = useCallback((next: string) => {
     setActiveId(next)
@@ -184,10 +189,12 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
     { label: 'Search the brain', hint: '/', run: () => show('brain') },
     { label: 'Show claimed files', run: () => show('files') },
     { label: 'Open the decision log', hint: 'markdown', run: () => window.open(decisionLogUrl(id.team), '_blank', 'noopener') },
+    { label: live.stats?.chaos ? 'Turn chaos off' : 'Turn chaos on', hint: 'demo', run: () => setChaosAsk(true) },
     { label: 'Team feed', run: () => select(FEED) },
     { label: theme === 'dark' ? 'Switch to light' : 'Switch to dark', run: flip },
     { label: 'Open the setup guide', run: () => setGuide(true) },
     { label: 'Change team or name', hint: `${id.team} · ${id.who}`, run: onSignOut },
+    ...orders.map((t) => ({ id: t.id, label: t.title, hint: `work order · for ${orderFor(t)}`, agent: 'jam', run: () => select(t.id) })),
     ...tasks.map((t) => ({ id: t.id, label: t.title, hint: `${agentName(t.owner)} · ${TASK_LABEL[t.status]}`, agent: t.owner, run: () => select(t.id) })),
   ]
 
@@ -226,6 +233,28 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
       </header>
 
       <nav className="left" aria-label="Tasks">
+        {orders.length > 0 && (
+          <>
+            <div className="sec sec-orders">
+              <span>PROPOSED BY JAM</span>
+              <span>{orders.length} waiting</span>
+            </div>
+            <ul className="sessions orders-list">
+              {orders.map((t) => (
+                <li key={t.id}>
+                  <button type="button" className="session" aria-current={t.id === activeId} onClick={() => select(t.id)}>
+                    <Mark agent="jam" size={28} mode="waiting" />
+                    <span className="s-title">{t.title}</span>
+                    <span className="s-time">{ago(t.created_at, now)}</span>
+                    <span className="s-meta">
+                      <span className="s-flag s-needs_input">Proposed</span> · for {orderFor(t)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
         <div className="sec">
           <span>WORK</span>
           <span>{open.length} working</span>
@@ -252,7 +281,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
             </li>
           ))}
         </ul>
-        {live.status === 'ready' && !tasks.length && (
+        {live.status === 'ready' && !tasks.length && !orders.length && (
           <p className="pane-empty">No task is claimed yet. An agent claims one with the task_claim tool, and it appears here.</p>
         )}
         <div className="sec">
@@ -273,7 +302,14 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
 
       <main className="center">
         <div className="path">
-          {active ? (
+          {proposed ? (
+            <>
+              <StatusGlyph state="needs_input" />
+              <span className="t-title">{proposed.title}</span>
+              <span>proposed by <b>jam</b></span>
+              <span>for <b>{orderFor(proposed)}</b></span>
+            </>
+          ) : active ? (
             <>
               <StatusGlyph state={TASK_STATE[active.status]} />
               <span className="t-title">{active.title}</span>
@@ -287,11 +323,17 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
               <span className="t-title">Team feed</span>
               <span>entries <b>{live.stats?.raw_total ?? 0}</b></span>
               <span>items <b>{live.stats?.items_total ?? 0}</b></span>
+              <a className="path-link" href={decisionLogUrl(id.team)} target="_blank" rel="noopener">decision log ↗</a>
             </>
           )}
         </div>
-        <Thread live={live} task={active} id={id} outgoing={outgoing} now={now} onSignOut={onSignOut} />
-        <NoteBox id={id} />
+        {!active && <OrderStrip orders={orders} now={now} onOpen={select} />}
+        {proposed ? (
+          <WorkOrder task={proposed} id={id} onPut={live.putTask} onDismissed={() => select(FEED)} />
+        ) : (
+          <Thread live={live} task={active} id={id} outgoing={outgoing} now={now} onSignOut={onSignOut} />
+        )}
+        {!proposed && <NoteBox id={id} />}
         <BottomPanel live={live} now={now} onSelect={select} />
       </main>
       <div className="divider d-right" onPointerDown={drag('right')} />
@@ -308,7 +350,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
           </button>
         </div>
         <div className="right-body">
-          {tab === 'brain' ? <Brain live={live} id={id} task={active} /> : <Files tasks={shown} />}
+          {tab === 'brain' ? <Brain live={live} id={id} task={proposed ? undefined : active} /> : <Files tasks={shown} />}
         </div>
       </aside>
 
@@ -321,6 +363,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
         <span className="sb-done" role="status">{finished}</span>
         <span className="extra">searchable p50 <b>{formatMs(live.stats?.slo.p50_ms)}</b></span>
         <span className="sp" />
+        <ChaosSwitch id={id} on={!!live.stats?.chaos} ready={!!live.stats} ask={chaosAsk} setAsk={setChaosAsk} onState={live.putChaos} />
         <button type="button" className="sb-btn" aria-label="Change team or name" title="Change team or name" onClick={onSignOut}>{id.who}</button>
         {!id.persisted && <span className="bad" role="status" title="This browser blocked storage, so the capture page will ask for your team and name again.">this tab only</span>}
         <span>{live.conn}</span>
@@ -330,6 +373,73 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
       {palette && <Palette commands={commands} onClose={() => setPalette(false)} />}
       {guide && <Guide id={id} live={live} onSignOut={onSignOut} onClose={() => setGuide(false)} />}
     </div>
+  )
+}
+
+// ---------- chaos switch (a demo tool: quiet in the status bar, confirm before turning it on) ----------
+
+type ChaosProps = { id: Identity; on: boolean; ready: boolean; ask: boolean; setAsk: (v: boolean) => void; onState: (c: ChaosState) => void }
+
+function ChaosSwitch({ id, on, ready, ask, setAsk, onState }: ChaosProps) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const flip = useCallback(
+    async (enabled: boolean) => {
+      setBusy(true)
+      setError('')
+      try {
+        onState(await setChaos(id, enabled))
+        setAsk(false)
+      } catch (e) {
+        console.error(`turning chaos ${enabled ? 'on' : 'off'} failed`, e)
+        setError(e instanceof Error ? e.message : 'The API did not answer.')
+      }
+      setBusy(false)
+    },
+    [id, onState, setAsk],
+  )
+  // Turning it off needs no confirm; the palette asks the same way the button does.
+  useEffect(() => {
+    if (ask && on && !busy && !error) void flip(false)
+  }, [ask, on, busy, error, flip])
+  const close = () => {
+    setAsk(false)
+    setError('')
+  }
+  if (!ready) return null
+  return (
+    <>
+      <button
+        type="button"
+        className={on ? 'sb-btn bad' : 'sb-btn sb-quiet'}
+        aria-haspopup="dialog"
+        title={on ? 'Turn the chaos switch off' : 'Demo tool: make indexing slow and flaky'}
+        disabled={busy}
+        onClick={() => (on ? void flip(false) : setAsk(!ask))}
+      >
+        {busy ? 'chaos…' : on ? 'chaos on' : 'chaos off'}
+      </button>
+      {(ask && !on) || error ? (
+        <div className="chaos-pop" role="dialog" aria-label="Chaos switch" onKeyDown={(e) => e.key === 'Escape' && close()}>
+          {!on && (
+            <>
+              <b>Turn chaos on?</b>
+              <p>Indexing waits 3 s and fails 20% of the time, for everyone on this deployment, until someone turns it off.</p>
+            </>
+          )}
+          {error && <p className="bad" role="alert">Not switched: {error}</p>}
+          <div className="chaos-actions">
+            <button type="button" className="btn" onClick={close}>Cancel</button>
+            {!on && (
+              // biome-ignore lint/a11y/noAutofocus: the confirm exists to be answered
+              <button type="button" className="btn primary" autoFocus disabled={busy} onClick={() => void flip(true)}>
+                {busy ? 'Turning on…' : 'Turn chaos on'}
+              </button>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </>
   )
 }
 
@@ -634,7 +744,7 @@ function ItemCard({ item, id, used }: { item: ItemDoc; id: Identity; used?: bool
   return (
     <ItemRow kind={cur.kind} who={cur.who} at={cur.at} text={cur.text} used={used} rejected={cur.verdict === 'rejected'} prov={n ? `from ${n} ${n === 1 ? 'quote' : 'quotes'}` : undefined}>
       <div className="grade">
-        {cur.confidence !== undefined && <span title="How directly the quoted words support this, by the librarian's own score">{pct(cur.confidence)} sure</span>}
+        {cur.confidence !== undefined && <span title="How directly the quoted words support this, by jam's own score">jam {pct(cur.confidence)}</span>}
         {cur.verdict ? (
           <span className={cur.verdict === 'rejected' ? 'bad' : undefined}>
             {cur.verdict}
