@@ -197,19 +197,32 @@ export function member(who: string, tasks: TaskDoc[], docs: RawDoc[], inBrain = 
  * Everyone the team has heard from or handed work to: brain authors, claim owners, side captains
  * and people jam suggested work orders for. Busiest first. jam itself only drafts, so it is left out.
  */
-export function roster(byWho: Record<string, number>, tasks: TaskDoc[], docs: RawDoc[], captains: Captains = {}, agents: AgentDoc[] = []): Member[] {
+// The brain also holds what GitHub accounts and bots posted. Those are not teammates:
+// a person's GitHub login counts as that person, and reviewers and orchestrator sessions are left out.
+// TODO: move to the server roster (JAM_ROSTER) so this is per team.
+const LOGIN_IS: Record<string, string> = { 'chito-systems': 'cam', quakeob: 'jake' }
+const NOT_PEOPLE = new Set(['jam', 'gitar', 'fable', 'cam-fable', 'agent'])
+
+export function roster(rawByWho: Record<string, number>, tasks: TaskDoc[], docs: RawDoc[], captains: Captains = {}, agents: AgentDoc[] = []): Member[] {
+  const byWho: Record<string, number> = {}
+  for (const [who, n] of Object.entries(rawByWho)) {
+    if (NOT_PEOPLE.has(who)) continue
+    const name = LOGIN_IS[who] ?? who
+    byWho[name] = (byWho[name] ?? 0) + n
+  }
   const names = new Set(Object.keys(byWho))
   const addName = (n: string) => ![...names].some((x) => !isAgent(x) && sameWho(x, n)) && names.add(n)
   for (const t of tasks) {
     if (t.status !== 'proposed') names.add(t.owner)
     else if (t.suggested_owner) addName(t.suggested_owner)
   }
-  for (const c of Object.values(captains)) if (c) addName(c)
+  for (const c of Object.values(captains)) if (c) addName(LOGIN_IS[c] ?? c)
   for (const a of agents) {
     if (a.state !== 'gone') names.add(a.id)
     if (a.human) addName(a.human)
   }
-  names.delete('jam')
+  for (const n of NOT_PEOPLE) names.delete(n)
+  for (const login of Object.keys(LOGIN_IS)) names.delete(login)
   const score = (m: Member) => m.working.length * 1000 + m.assigned.length * 100 + m.inBrain
   return [...names]
     .map((who) => member(who, tasks, docs, byWho[who] ?? 0, captains, agents))
