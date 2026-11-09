@@ -1,7 +1,7 @@
 // Serve this build (apps/web/dist) and pass the API through to a remote JAM backend,
 // streaming, so the SSE feed stays live. For running the phone app against a teammate's API:
 //   API_URL=https://<their-tunnel> PORT=5401 node scripts/serve-remote.mjs
-import { createReadStream, existsSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { extname, join, normalize } from 'node:path'
 import { Readable } from 'node:stream'
@@ -16,8 +16,16 @@ const isApi = (p) => p.startsWith('/api/') || p.startsWith('/mcp') || p === '/c'
 // Hop-by-hop, plus encoding: fetch has already decoded the body.
 const DROP = new Set(['host', 'connection', 'content-length', 'content-encoding', 'transfer-encoding', 'keep-alive'])
 
+const LOG = process.env.LOG === '1'
+const REPORTER = `(function(){function s(m){try{navigator.sendBeacon('/__client-log',String(m))}catch(e){}}
+window.addEventListener('error',function(e){s('error: '+e.message+' @ '+e.filename+':'+e.lineno+':'+e.colno+' '+(e.error&&e.error.stack||''))});
+window.addEventListener('unhandledrejection',function(e){s('rejection: '+(e.reason&&(e.reason.stack||e.reason.message)||e.reason))});
+var ce=console.error;console.error=function(){s('console.error: '+[].map.call(arguments,function(a){return a&&a.stack||String(a)}).join(' '));ce.apply(console,arguments)};
+setTimeout(function(){var r=document.getElementById('root');s('after 6s: root children='+(r&&r.children.length)+' html='+(r&&r.innerHTML.slice(0,300)))},6000)})()`
+
 createServer(async (req, res) => {
   const path = new URL(req.url, 'http://x').pathname
+  if (LOG) console.log(new Date().toISOString().slice(11, 19), req.method, req.url, req.headers['user-agent']?.slice(0, 60) ?? '')
   if (isApi(path)) {
     try {
       const headers = Object.fromEntries(Object.entries(req.headers).filter(([k]) => !DROP.has(k)))
@@ -37,9 +45,23 @@ createServer(async (req, res) => {
     }
     return
   }
+  // With LOG=1, the page reports its own errors here, for debugging a phone with no console.
+  if (LOG && path === '/__client-log' && req.method === 'POST') {
+    let body = ''
+    req.on('data', (c) => (body += c))
+    req.on('end', () => {
+      console.log('CLIENT', body.slice(0, 2000))
+      res.end()
+    })
+    return
+  }
   let file = join(DIST, normalize(path).replace(/^(\.\.[/\\])+/, ''))
   if (!existsSync(file) || statSync(file).isDirectory()) file = join(DIST, 'index.html')
   const ext = extname(file)
   res.writeHead(200, { 'content-type': TYPES[ext] ?? 'application/octet-stream', 'cache-control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable' })
+  if (LOG && ext === '.html') {
+    const html = readFileSync(file, 'utf8').replace('<head>', `<head><script>${REPORTER}</script>`)
+    return res.end(html)
+  }
   createReadStream(file).pipe(res)
 }).listen(PORT, () => console.log(`JAM on :${PORT}, API → ${API}`))
