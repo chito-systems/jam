@@ -10,15 +10,18 @@ import {
   createTranscriberFromEnv,
 } from "@hh/worker";
 import { createApp } from "./app";
+import { createChaosSwitch } from "./chaos-routes";
 
 const store = createStoreFromEnv(process.env);
 const transcriber = createTranscriberFromEnv(process.env);
 const librarian = createLibrarianFromEnv(process.env);
+const chaos = createChaosSwitch(process.env.CHAOS_MODE === "true");
+const allowChaosSwitch = process.env.CHAOS_SWITCH !== "off";
 const dispatcher = createInlineDispatcher({
   store,
   transcriber,
   librarian,
-  chaos: process.env.CHAOS_MODE === "true",
+  chaos: () => chaos.get().enabled,
 });
 const github = createGithubPollerFromEnv(process.env, { store, dispatcher });
 
@@ -35,8 +38,8 @@ try {
 github?.start(); // first tick runs after ensureReady, so the seen-set seeds from a ready store
 
 const port = Number(process.env.PORT ?? process.env.API_PORT ?? 3000);
-serve({ fetch: createApp({ store, dispatcher, webDist }).fetch, port }, (info) => {
+serve({ fetch: createApp({ store, dispatcher, webDist, chaos, allowChaosSwitch }).fetch, port }, (info) => {
   console.log(
-    `api listening on :${info.port} store=${store.constructor.name} transcriber=${transcriber?.name ?? "none"} librarian=${librarian?.name ?? "none"} chaos=${process.env.CHAOS_MODE === "true"} web=${webDist ?? "none"} github=${github?.repo ?? "off"}`,
+    `api listening on :${info.port} store=${store.constructor.name} transcriber=${transcriber?.name ?? "none"} librarian=${librarian?.name ?? "none"} chaos=${chaos.get().enabled} chaos_switch=${allowChaosSwitch ? "on" : "off"} web=${webDist ?? "none"} github=${github?.repo ?? "off"}`,
   );
 });
