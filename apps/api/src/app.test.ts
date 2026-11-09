@@ -228,6 +228,27 @@ describe("api", () => {
     expect(((await wrong.json()) as TaskConflict).reason).toBe("wrong_side");
   });
 
+  it("a refused claim writes a [clash] note and publishes the holder's task", async () => {
+    const { app, jobs, events } = setup();
+    const held = (await (await app.request("/api/tasks", claim(["apps/api/"]))).json()) as TaskDoc;
+    const res = await app.request("/api/tasks", claim(["apps/api/src/app.ts"], { who: "agent:opus-2", title: "fix app" }));
+    expect(res.status).toBe(409);
+    expect(events.at(-1)).toEqual({ event: "task", data: held });
+    expect(jobs.at(-1)).toMatchObject({ who: "agent:opus-2", side: "backend", source_ref: "clash" });
+    expect(jobs.at(-1)?.text).toBe('[clash] agent:opus-2 tried to claim apps/api/src/app.ts but agent:opus-1 holds them for "tasks api"');
+    await app.request("/api/tasks", claim(["apps/web/src/"]));
+    expect(jobs.at(-1)?.text).toBe("[clash] agent:opus-1 (backend) tried to claim apps/web/src, which belong to the frontend side");
+  });
+
+  it("a failed clash note leaves the 409 alone", async () => {
+    const { app, dispatcher } = setup();
+    await app.request("/api/tasks", claim(["apps/api/"]));
+    dispatcher.dispatch = async () => {
+      throw new Error("elastic down");
+    };
+    expect((await app.request("/api/tasks", claim(["apps/api/src/app.ts"]))).status).toBe(409);
+  });
+
   it("close frees the paths; unknown id 404s", async () => {
     const { app, jobs, events } = setup();
     const task = (await (await app.request("/api/tasks", claim(["apps/api/"]))).json()) as TaskDoc;

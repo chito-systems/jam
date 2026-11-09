@@ -64,7 +64,7 @@ describe("handleMcpRequest", () => {
     expect(body.result.serverInfo.name).toBe("hack-harness-context");
   });
 
-  it("lists the ten tools", async () => {
+  it("lists the eleven tools", async () => {
     const { post } = setup();
     const body = await (await post("tools/list", {})).json();
     const names = body.result.tools.map((t: { name: string }) => t.name).sort();
@@ -79,6 +79,7 @@ describe("handleMcpRequest", () => {
       "task_done",
       "task_list",
       "task_next",
+      "who_owns",
     ]);
   });
 
@@ -195,6 +196,26 @@ describe("task tools", () => {
     expect(res.isError).toBe(true);
     expect(res.text).toContain("already claimed by agent:opus-a");
     expect(res.text).toMatch(/- agent:opus-a: "stats route" holds apps\/api \(task /);
+  });
+
+  it("a refused claim writes a [clash] note and lights up the holder's task", async () => {
+    const { call, store, published } = setup();
+    await call("task_claim", { title: "stats route", paths: ["apps/api/"] }, A);
+    await call("task_claim", { title: "fix app", paths: ["apps/api/src/app.ts"] }, B);
+    expect(published.at(-1)).toMatchObject({ event: "task", data: { owner: "agent:opus-a", title: "stats route" } });
+    const [note] = await store.recent({ team_id: "t1", limit: 1 });
+    expect(note).toMatchObject({ who: "agent:opus-b", side: "backend", source_ref: "clash" });
+    expect(note?.text).toBe('[clash] agent:opus-b tried to claim apps/api/src/app.ts but agent:opus-a holds them for "stats route"');
+  });
+
+  it("who_owns names the side, captain and holder", async () => {
+    const { call } = setup();
+    expect((await call("who_owns", { path: "PITCH.md" })).text).toBe(
+      "PITCH.md: shared ground, anyone may claim it\nnobody is working on it right now",
+    );
+    await call("task_claim", { title: "stats route", paths: ["apps/api/"] }, A);
+    const res = await call("who_owns", { path: "apps/api/src/app.ts" });
+    expect(res.text).toMatch(/^apps\/api\/src\/app.ts: backend side, captain cam\nheld by agent:opus-a: "stats route" \(task [0-9a-f-]{36}\)$/);
   });
 
   it("refuses a claim into the other side's paths", async () => {
