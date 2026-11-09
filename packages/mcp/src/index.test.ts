@@ -1,14 +1,14 @@
-import { type CaptureStatus, type Dispatcher, type IngestJob, MemoryStore } from "@hh/shared";
+import { type CaptureStatus, type Dispatcher, type FeedEvent, type IngestJob, MemoryStore } from "@hh/shared";
 import { describe, expect, it } from "vitest";
 import { handleMcpRequest } from "./index";
 
 /** Indexes text jobs straight into the store, like the inline dispatcher will. */
-function fakeDispatcher(store: MemoryStore): Dispatcher {
+function fakeDispatcher(store: MemoryStore, published: FeedEvent[] = []): Dispatcher {
   return {
     async dispatch(job: IngestJob): Promise<CaptureStatus> {
       const id = `${job.capture_id}:0`;
       await store.indexRaw([
-        { team_id: job.team_id, id, capture_id: job.capture_id, type: job.type, who: job.who, at: job.at, seq: 0, text: job.text ?? "", source_ref: job.source_ref },
+        { team_id: job.team_id, id, capture_id: job.capture_id, type: job.type, who: job.who, at: job.at, seq: 0, text: job.text ?? "", source_ref: job.source_ref, side: job.side },
       ]);
       return { capture_id: job.capture_id, team_id: job.team_id, who: job.who, type: job.type, state: "indexed", received_at: job.received_at, raw_ids: [id] };
     },
@@ -18,7 +18,9 @@ function fakeDispatcher(store: MemoryStore): Dispatcher {
     async captures() {
       return [];
     },
-    publish() {},
+    publish(_team_id, event) {
+      published.push(event);
+    },
     subscribe() {
       return () => {};
     },
@@ -27,7 +29,8 @@ function fakeDispatcher(store: MemoryStore): Dispatcher {
 
 function setup() {
   const store = new MemoryStore();
-  const deps = { store, dispatcher: fakeDispatcher(store) };
+  const published: FeedEvent[] = [];
+  const deps = { store, dispatcher: fakeDispatcher(store, published) };
   let nextId = 1;
   const post = (method: string, params: unknown, query = "team_id=t1&who=opus-1") =>
     handleMcpRequest(
@@ -45,7 +48,7 @@ function setup() {
     const result = body.result as { content: { text: string }[]; isError?: boolean };
     return { text: result.content.map((c) => c.text).join("\n"), isError: result.isError };
   };
-  return { store, post, call };
+  return { store, post, call, published };
 }
 
 describe("handleMcpRequest", () => {
@@ -61,11 +64,19 @@ describe("handleMcpRequest", () => {
     expect(body.result.serverInfo.name).toBe("hack-harness-context");
   });
 
-  it("lists the four tools", async () => {
+  it("lists the seven tools", async () => {
     const { post } = setup();
     const body = await (await post("tools/list", {})).json();
     const names = body.result.tools.map((t: { name: string }) => t.name).sort();
-    expect(names).toEqual(["context_add", "context_decisions", "context_recent", "context_search"]);
+    expect(names).toEqual([
+      "context_add",
+      "context_decisions",
+      "context_recent",
+      "context_search",
+      "task_claim",
+      "task_done",
+      "task_list",
+    ]);
   });
 
   it("context_add then context_search finds it, attributed to the agent", async () => {
@@ -108,7 +119,103 @@ describe("handleMcpRequest", () => {
     const res = await post("tools/list", {}, "who=opus-1");
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/team_id/);
+    const bad = await post("tools/list", {}, "team_id=t1&side=middle");
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toMatch(/side/);
     const get = await handleMcpRequest(new Request("http://localhost/mcp?team_id=t1"), { store, dispatcher: fakeDispatcher(store) });
     expect(get.status).toBe(405);
+  });
+});
+
+describe("task tools", () => {
+  const A = "team_id=t1&who=opus-a&side=backend";
+  const B = "team_id=t1&who=opus-b&side=backend";
+
+  it("context_add carries the session side, and context_recent filters by it", async () => {
+    const { call, store } = setup();
+    await call("context_add", { text: "backend note" }, A);
+    await call("context_add", { text: "frontend note" }, "team_id=t1&who=s1&side=frontend");
+    const raw = await store.recent({ team_id: "t1", limit: 10 });
+    expect(raw.find((d) => d.text === "backend note")?.side).toBe("backend");
+    const recent = await call("context_recent", { side: "frontend" });
+    expect(recent.text).toContain("frontend note");
+    expect(recent.text).toContain("(frontend)");
+    expect(recent.text).not.toContain("backend note");
+  });
+
+  it("claim is granted, listed, published and recorded in the brain", async () => {
+    const { call, published, store } = setup();
+    const res = await call("task_claim", { title: "stats route", paths: ["apps/api/"] }, A);
+    expect(res.isError).toBeFalsy();
+    expect(res.text).toMatch(/Claimed task [0-9a-f-]{36}, you hold apps\/api\..*task_done/);
+    const list = await call("task_list", {}, B);
+    expect(list.text).toContain("[claimed] backend · agent:opus-a · stats route");
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({ event: "task", data: { owner: "agent:opus-a", status: "claimed" } });
+    const raw = await store.recent({ team_id: "t1", limit: 10 });
+    expect(raw[0]?.text).toBe("[task claimed] stats route — agent:opus-a is editing apps/api");
+    expect(raw[0]?.source_ref).toMatch(/^task:/);
+  });
+
+  it("refuses an overlapping claim from another agent, naming the owner", async () => {
+    const { call } = setup();
+    await call("task_claim", { title: "stats route", paths: ["apps/api/"] }, A);
+    const res = await call("task_claim", { title: "fix app", paths: ["apps/api/src/app.ts"] }, B);
+    expect(res.isError).toBe(true);
+    expect(res.text).toContain("already claimed by agent:opus-a");
+    expect(res.text).toMatch(/- agent:opus-a: "stats route" holds apps\/api \(task /);
+  });
+
+  it("refuses a claim into the other side's paths", async () => {
+    const { call } = setup();
+    const res = await call("task_claim", { title: "restyle", paths: ["apps/web/src/App.tsx"] }, A);
+    expect(res.isError).toBe(true);
+    expect(res.text).toContain("belongs to the other side");
+  });
+
+  it("refuses a claim when the url has no side, with the fix", async () => {
+    const { call } = setup();
+    const res = await call("task_claim", { title: "x", paths: ["README.md"] }, "team_id=t1&who=opus-a");
+    expect(res.isError).toBe(true);
+    expect(res.text).toContain("&side=backend|frontend");
+  });
+
+  it("task_done frees the paths for the next agent", async () => {
+    const { call, published } = setup();
+    const claim = await call("task_claim", { title: "stats route", paths: ["apps/api/"] }, A);
+    const id = claim.text.match(/Claimed task ([0-9a-f-]{36}),/)?.[1];
+    const done = await call("task_done", { id, pr: "42" }, A);
+    expect(done.isError).toBeFalsy();
+    expect(done.text).toContain("done. Freed apps/api");
+    expect(published.at(-1)).toMatchObject({ event: "task", data: { status: "done", pr: "42" } });
+    expect((await call("task_list", {}, B)).text).toBe("No open claims.");
+    const again = await call("task_claim", { title: "fix app", paths: ["apps/api/src/app.ts"] }, B);
+    expect(again.isError).toBeFalsy();
+    const unknown = await call("task_done", { id: "nope" }, A);
+    expect(unknown.isError).toBe(true);
+  });
+
+  it("still grants the claim when the brain write fails", async () => {
+    const { call, store } = setup();
+    const deps = { store, dispatcher: fakeDispatcher(store) };
+    deps.dispatcher.dispatch = async () => {
+      throw new Error("worker down");
+    };
+    const res = await handleMcpRequest(
+      new Request(`http://localhost/mcp?${A}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "task_claim", arguments: { title: "t", paths: ["apps/api/"] } },
+        }),
+      }),
+      deps,
+    );
+    const body = await res.json();
+    expect(body.result.isError).toBeFalsy();
+    expect((await call("task_list", {})).text).toContain("agent:opus-a");
   });
 });
