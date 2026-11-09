@@ -32,6 +32,8 @@ export interface ContextStore {
   search(params: SearchParams): Promise<SearchResponse>;
   /** Newest first. */
   recent(params: RecentParams): Promise<RawDoc[]>;
+  /** Raw chunks by id within one team (provenance lookups). Missing ids are skipped; order is not guaranteed. */
+  rawByIds(team_id: string, ids: string[]): Promise<RawDoc[]>;
   /** Newest first. */
   items(params: ItemsParams): Promise<ItemDoc[]>;
   /** Create or replace a task claim by id. Tasks are mutable; raw docs are not. */
@@ -111,6 +113,13 @@ export class MemoryStore implements ContextStore {
       )
       .sort((a, b) => byNewest(a, b) || b.seq - a.seq)
       .slice(0, params.limit);
+  }
+
+  async rawByIds(team_id: string, ids: string[]): Promise<RawDoc[]> {
+    return ids.flatMap((id) => {
+      const doc = this.raw.get(id);
+      return doc && doc.team_id === team_id ? [doc] : [];
+    });
   }
 
   async items(params: ItemsParams): Promise<ItemDoc[]> {
