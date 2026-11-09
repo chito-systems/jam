@@ -4,18 +4,18 @@ import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
 import '@fontsource/bricolage-grotesque/800.css'
 import './ade.css'
-import { agentMode, foldGone, groupAgents, ownerLabel, shortName } from './agents'
+import { agentMode, foldGone, groupAgents, ownerLabel, shortName, UNNAMED_HINT, unnamed } from './agents'
 import { armAudio, playChime, setSound, soundOn } from './chime'
 import { Companion } from './Companion'
 import type { RunState } from './data'
 import { Guide, guideSeen, HelpIcon } from './Guide'
-import { addNote, agentName, ago, captainsOf, clock, decisionLogUrl, formatMs, type Identity, isAgent, itemNewer, type Live, loadIdentity, loadOwnership, loadRecent, type Member, member, mergeSaid, newlyDone, pct, pendingCaptures, roster, sameWho, saveIdentity, searchBrain, setVerdict, threadFor, useLive } from './live'
+import { addNote, AGENTS_EVERY_MS, agentName, ago, captainsOf, clock, decisionLogUrl, formatMs, type Identity, isAgent, itemNewer, type Live, loadGithub, loadIdentity, loadOwnership, loadRecent, type Member, member, mergeSaid, newlyDone, pct, pendingCaptures, roster, sameWho, saveIdentity, searchBrain, setVerdict, threadFor, useLive } from './live'
 import { Mark, type MarkMode, ThemeCtx } from './Mark'
 import { orderFor, proposedOrders, setChaos, workTasks } from './orders'
 import { Intro } from './Intro'
 import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, usePhone, useTheme } from './parts'
 import { type Outgoing, Talk } from './Talk'
-import { Terminal } from './Terminal'
+import { type ShipRow, shipHeader, shipRows } from './ship'
 import { TabStrip, TermStack, useTermTabs } from './TermTabs'
 import { clampPanel, loadPanelHeight, savePanelHeight } from './term'
 import { WorkOrder } from './WorkOrder'
@@ -35,7 +35,6 @@ const TASK_LABEL: Record<TaskDoc['status'], string> = { proposed: 'Proposed', cl
 const TASK_MARK: Record<TaskDoc['status'], MarkMode> = { proposed: 'waiting', claimed: 'working', done: 'still', released: 'idle' }
 // What the chaos switch does, from the API (chaos-routes.ts and the ChaosState contract).
 const CHAOS_TEXT = 'CHAOS on: indexing waits 3 s and fails 20% of the time'
-const LATEST_MAX = 40
 const CAPTURE_LABEL: Record<CaptureStatus['state'], string> = {
   queued: 'queued',
   transcribing: 'transcribing',
@@ -44,7 +43,7 @@ const CAPTURE_LABEL: Record<CaptureStatus['state'], string> = {
   failed: 'failed',
 }
 
-type RightTab = 'brain' | 'files'
+type RightTab = 'ship' | 'files'
 
 /** Turns an owner like "agent:cam-opus-1" into "opus-1 · cam" once /api/agents knows it. */
 const NameCtx = createContext<(who: string) => string>(agentName)
@@ -101,7 +100,7 @@ function Join({ onJoin }: { onJoin: (id: Identity) => void }) {
     <div className="ade join">
       <form className="join-card" onSubmit={submit}>
         <div className="join-head">
-          <Mark agent="jam" size={28} />
+          <Mark agent="feed" size={28} />
           <span className="wm">JAM</span>
         </div>
         <p className="dim">Enter your team code and name. They stay in this browser, and the capture page uses the same ones.</p>
@@ -129,7 +128,7 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
     if (live.status !== 'loading') onLoaded()
   }, [live.status, onLoaded])
   const [activeId, setActiveId] = useState(FEED)
-  const [tab, setTab] = useState<RightTab>('brain')
+  const [tab, setTab] = useState<RightTab>('ship')
   const [palette, setPalette] = useState(false)
   const [guide, setGuide] = useState(() => !guideSeen())
   const [widths, setWidths] = useState({ left: 256, right: 340 })
@@ -209,7 +208,7 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
       if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || e.metaKey || e.ctrlKey || e.altKey) return
       if (e.key === '/') {
         e.preventDefault()
-        show('brain')
+        show('ship')
         window.setTimeout(() => document.querySelector<HTMLInputElement>('.ade .search input')?.focus(), 0)
       }
       if (e.key === 'j' || e.key === 'k') {
@@ -241,7 +240,7 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
   const commands: Command[] = [
     { label: 'Open the capture page', hint: 'hold ⌥Space here', run: () => window.location.assign('/c') },
     { label: sound ? 'Turn sound off' : 'Turn sound on', run: toggleSound },
-    { label: 'Search the brain', hint: '/', run: () => show('brain') },
+    { label: 'Search the brain', hint: '/', run: () => show('ship') },
     { label: 'Show claimed files', run: () => show('files') },
     { label: 'Open the decision log', hint: 'markdown', run: () => window.open(decisionLogUrl(id.team), '_blank', 'noopener') },
     { label: live.stats?.chaos ? 'Turn chaos off' : 'Turn chaos on', hint: 'demo', run: () => setChaosAsk(live.stats?.chaos ? 'off' : 'on') },
@@ -288,7 +287,7 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
         <button type="button" className="icon only-narrow" aria-label="Tasks" onClick={() => setSide(side === 'left' ? 'none' : 'left')}>
           <MenuIcon />
         </button>
-        <Mark agent="jam" size={22} />
+        <Mark agent="feed" size={22} />
         <span className="wm">JAM</span>
         <span className="crumb">team <b>{id.team}</b></span>
         <button type="button" className="cmd" onClick={() => setPalette(true)}>
@@ -320,7 +319,7 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
         <ul className="sessions">
           <li>
             <button type="button" className="session" aria-current={activeId === FEED} onClick={() => select(FEED)}>
-              <Mark agent="jam" size={28} />
+              <Mark agent="feed" size={28} />
               <span className="s-title">Team feed</span>
               <span className="s-time">{live.docs[0] ? ago(live.docs[0].at, now) : ''}</span>
               <span className="s-meta">Everything said, pasted and posted</span>
@@ -353,7 +352,7 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
             </li>
           ))}
         </ul>
-        {live.status === 'ready' && !tasks.length && <p className="pane-empty">No task is claimed yet. An agent claims one with the task_claim tool, and it appears here.</p>}
+        {live.status === 'ready' && !tasks.length && <p className="pane-empty">Nothing claimed.</p>}
         <div className="sec">
           <span>YOUR AGENTS</span>
           <span>{mine.length + waitingTabs.length || ''}</span>
@@ -395,7 +394,7 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
       <div className="divider d-left" onPointerDown={drag('left')} />
 
       <main className="center" data-term={term.active ? '' : undefined}>
-        <TabStrip t={term} />
+        <TabStrip t={term} first={isJam ? 'jam' : 'Team feed'} />
         <div className="path">
           {isJam ? (
             <>
@@ -416,7 +415,7 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
             <>
               <span className={`a-dot a-${agent.state}`} role="img" aria-label={AGENT_STATE[agent.state]} />
               <span className="t-title">{shortName(agent)}</span>
-              {agent.human && <span>works for <b>{agent.human}</b></span>}
+              {unnamed(agent) ? <span>{UNNAMED_HINT}</span> : agent.human && <span>works for <b>{agent.human}</b></span>}
               {agent.side && <span>side <b>{agent.side}</b></span>}
               <span>seen <b>{ago(agent.last_seen, now)}</b></span>
             </>
@@ -464,9 +463,8 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
 
       <aside className="right" aria-label="Brain">
         <div className="tabs" role="tablist">
-          <button type="button" role="tab" aria-selected={tab === 'brain'} onClick={() => setTab('brain')}>
-            Brain
-            {live.stats && <span className="count">{live.stats.items_total + live.stats.raw_total}</span>}
+          <button type="button" role="tab" aria-selected={tab === 'ship'} onClick={() => setTab('ship')}>
+            Ship
           </button>
           <button type="button" role="tab" aria-selected={tab === 'files'} onClick={() => setTab('files')}>
             Files
@@ -474,7 +472,7 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
           </button>
         </div>
         <div className="right-body">
-          {tab === 'brain' ? <Brain live={live} id={id} task={proposed ? undefined : active} /> : <Files tasks={shown} />}
+          {tab === 'ship' ? <Brain live={live} id={id} task={proposed ? undefined : active} /> : <Files tasks={shown} />}
         </div>
       </aside>
 
@@ -560,7 +558,7 @@ function AgentCard({ agent, now, onSelect, onNewTerminal }: { agent: AgentDoc; n
             <Mark agent={agent.id} size={40} mode={agentMode(agent)} />
             <div>
               <b>{shortName(agent)}</b>
-              <span className="dim">{agent.human ? `works for ${agent.human}` : 'works for nobody on the roster'}</span>
+              <span className="dim">{unnamed(agent) ? UNNAMED_HINT : agent.human ? `works for ${agent.human}` : 'works for nobody on the roster'}</span>
             </div>
           </div>
           <dl>
@@ -1045,16 +1043,14 @@ function NoteBox({ id }: { id: Identity }) {
 // ---------- bottom panel ----------
 
 function BottomPanel({ live, now, onSelect }: { live: Live; now: number; onSelect: (id: string) => void }) {
-  const [tab, setTab] = useState<'claims' | 'captures' | 'terminal'>('claims')
-  const [shut, setShut] = useState(false)
-  const [termOn, setTermOn] = useState(false)
+  const [tab, setTab] = useState<'claims' | 'captures'>('claims')
+  const [shut, setShut] = useState(true)
   const [height, setHeight] = useState(loadPanelHeight)
   const claims = live.tasks.filter((t) => t.status === 'claimed')
   const name = useContext(NameCtx)
   const open = (t: typeof tab) => {
     setTab(t)
     setShut(false)
-    if (t === 'terminal') setTermOn(true)
   }
   const grip = (e: ReactPointerEvent) => {
     e.preventDefault()
@@ -1078,13 +1074,11 @@ function BottomPanel({ live, now, onSelect }: { live: Live; now: number; onSelec
       <div className="ptabs" role="tablist">
         <button type="button" role="tab" aria-selected={tab === 'claims'} onClick={() => open('claims')}>Open claims</button>
         <button type="button" role="tab" aria-selected={tab === 'captures'} onClick={() => open('captures')}>Captures</button>
-        <button type="button" role="tab" aria-selected={tab === 'terminal'} onClick={() => open('terminal')}>Terminal</button>
         <button type="button" className="collapse" aria-label={shut ? 'Open panel' : 'Close panel'} onClick={() => setShut(!shut)}>
           {shut ? '▴' : '▾'}
         </button>
       </div>
-      {termOn && <Terminal visible={!shut && tab === 'terminal'} />}
-      {!shut && tab !== 'terminal' && (
+      {!shut && (
         <div className="panel-body">
           {tab === 'claims' &&
             (claims.length ? (
@@ -1255,23 +1249,64 @@ function Brain({ live, id, task }: { live: Live; id: Identity; task: TaskDoc | u
               {!written.length && <p className="pane-empty">{name(task.owner)} has not added anything to the brain.</p>}
             </>
           )}
-          <div className="sec">
-            <span>DECISIONS AND ITEMS</span>
-            <span>
-              {live.items.length} ·{' '}
-              <a className="sec-link" href={decisionLogUrl(team)} target="_blank" rel="noopener">decision log</a>
-            </span>
-          </div>
-          {live.items.map((i) => <ItemCard key={i.id} item={i} id={id} />)}
-          {live.status === 'ready' && !live.items.length && <p className="pane-empty">No items yet. The librarian extracts decisions, todos and questions from captures.</p>}
-          <div className="sec">
-            <span>LATEST</span>
-            <span>{live.docs.length > LATEST_MAX ? `${LATEST_MAX} of ${live.docs.length}` : live.docs.length}</span>
-          </div>
-          {live.docs.slice(0, LATEST_MAX).map((d) => rawRow(d))}
-          {live.status === 'ready' && !live.docs.length && <p className="pane-empty">Nothing captured yet.</p>}
+          <Ship team={team} />
         </>
       )}
+    </>
+  )
+}
+
+/** Today's pull requests and Gitar's latest word on each, from the GitHub activity in the brain. */
+function Ship({ team }: { team: string }) {
+  const [got, setGot] = useState<{ rows?: ShipRow[]; error?: string }>({})
+  useEffect(() => {
+    let dead = false
+    const load = () =>
+      Promise.all([loadGithub(team, 'pr'), loadGithub(team, 'review')])
+        .then(([p, r]) => !dead && setGot({ rows: shipRows(p.docs, r.docs) }))
+        .catch((e: unknown) => {
+          console.error('loading pull requests for the Ship view failed', e)
+          if (!dead) setGot((g) => ({ rows: g.rows, error: e instanceof Error ? e.message : 'The API did not answer.' }))
+        })
+    void load()
+    const t = window.setInterval(load, AGENTS_EVERY_MS)
+    return () => {
+      dead = true
+      window.clearInterval(t)
+    }
+  }, [team])
+  const rows = got.rows
+  return (
+    <>
+      <div className="sec">
+        <span>SHIP</span>
+        <span>
+          <a className="sec-link" href={decisionLogUrl(team)} target="_blank" rel="noopener">decision log</a>
+        </span>
+      </div>
+      {rows && rows.length > 0 && <p className="ship-head">{shipHeader(rows)}</p>}
+      {got.error && <p className="pane-empty bad" role="alert">Pull requests did not load: {got.error}</p>}
+      {!rows && !got.error && <p className="pane-empty" role="status">Loading pull requests…</p>}
+      {rows && !rows.length && <p className="pane-empty">No pull requests in the brain yet.</p>}
+      {rows?.map((r) => {
+        const body = (
+          <>
+            <div className="k">
+              <span className="kind">#{r.n}</span>
+              <span className={r.state === 'Merged' ? 'chip merged' : 'chip'}>{r.state}</span>
+              {r.gitar && <span className={r.gitar === 'Changes requested' ? 'chip bad' : 'chip'}>Gitar · {r.gitar}</span>}
+              {r.side && <span>{r.side}</span>}
+            </div>
+            <p>{r.title}</p>
+            {r.who && <span className="prov">opened by {r.who} · {clock(r.at)}</span>}
+          </>
+        )
+        return r.url ? (
+          <a key={r.n} className="item ship-row" href={r.url} target="_blank" rel="noopener">{body}</a>
+        ) : (
+          <article key={r.n} className="item ship-row">{body}</article>
+        )
+      })}
     </>
   )
 }

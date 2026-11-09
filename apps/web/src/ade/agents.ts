@@ -2,8 +2,13 @@
 import type { AgentDoc } from '@hh/shared'
 import type { MarkMode } from './Mark'
 
+/** A session started without a name of its own: it registered as "agent", or as working for "agent". */
+export const unnamed = (a: Pick<AgentDoc, 'name' | 'human'>) => a.name === 'agent' || a.human === 'agent'
+export const UNNAMED_HINT = 'start agents with + New agent so they get a name'
+
 /** "cam-opus-1" working for "cam" → "opus-1". Without a matching human prefix the name stays whole. */
 export function shortName(a: Pick<AgentDoc, 'name' | 'human'>): string {
+  if (unnamed(a)) return 'unnamed session'
   const prefix = a.human ? `${a.human}-` : ''
   return prefix && a.name.startsWith(prefix) && a.name.length > prefix.length ? a.name.slice(prefix.length) : a.name
 }
@@ -11,7 +16,7 @@ export function shortName(a: Pick<AgentDoc, 'name' | 'human'>): string {
 /** How an owner reads in the workspace: "opus-1 · cam" when the agent is known, else "agent:" stripped. */
 export function ownerLabel(who: string, known: ReadonlyMap<string, AgentDoc>): string {
   const a = known.get(who)
-  if (a) return a.human ? `${shortName(a)} · ${a.human}` : a.name
+  if (a) return unnamed(a) ? 'unnamed session' : a.human ? `${shortName(a)} · ${a.human}` : a.name
   return who.startsWith('agent:') ? who.slice(6) : who
 }
 

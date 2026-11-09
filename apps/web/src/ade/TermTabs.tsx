@@ -39,7 +39,7 @@ export function useTermTabs(me: string, team: string, agents: AgentDoc[]) {
   return { ...tabs, full: tabs.list.length >= MAX_SESSIONS, newAgent, newShell, show, close, focusAgent }
 }
 
-export function TabStrip({ t }: { t: TermTabsApi }) {
+export function TabStrip({ t, first = 'Team feed' }: { t: TermTabsApi; first?: string }) {
   const [menu, setMenu] = useState(false)
   const [side, setSide] = useState<Side>('backend')
   const box = useRef<HTMLDivElement>(null)
@@ -67,7 +67,7 @@ export function TabStrip({ t }: { t: TermTabsApi }) {
     <div className="ctabs">
       <div className="ctabs-scroll" ref={strip} role="tablist" aria-label="Centre pane">
         <button type="button" role="tab" className="ctab" aria-selected={t.active === null} onClick={() => t.show(null)}>
-          Team feed
+          {first}
         </button>
         {t.list.map((s) => (
           <span key={s.id} className="ctab-wrap" data-kind={s.kind}>

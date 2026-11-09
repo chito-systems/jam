@@ -1,6 +1,7 @@
 // The left rail's three sections: SHARED (team feed, jam), YOUR AGENTS, PEOPLE. Pure (rail.test.ts).
 import type { AgentDoc, ItemDoc, TaskDoc } from '@hh/shared'
 import type { Member } from './live'
+import { unnamed } from './agents'
 import { agentName } from './live'
 
 /** Items nobody has confirmed or rejected yet: jam is waiting on a person. */
@@ -11,7 +12,7 @@ export const assignedOrders = (tasks: TaskDoc[]) =>
   tasks.filter((t) => t.proposed_by === 'jam' && (t.status === 'claimed' || t.status === 'done')).sort((a, b) => b.updated_at.localeCompare(a.updated_at))
 
 /** Agents that work for me. */
-export const myAgents = (agents: AgentDoc[], me: string) => agents.filter((a) => a.human?.toLowerCase() === me.toLowerCase())
+export const myAgents = (agents: AgentDoc[], me: string) => agents.filter((a) => !unnamed(a) && a.human?.toLowerCase() === me.toLowerCase())
 
 /** Open terminal agents that have not shown up in /api/agents yet. */
 export const unregistered = (names: string[], agents: AgentDoc[]) => {

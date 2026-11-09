@@ -3,7 +3,8 @@ import { MARK_SHAPES, MARK_VENDORS, markFor } from './Mark'
 
 describe('markFor', () => {
   it('gives known agents their own ink and shape', () => {
-    expect(markFor('jam')).toEqual({ ink: 'pink', shape: 'tri2' })
+    expect(markFor('feed')).toEqual({ ink: 'pink', shape: 'tri2' })
+    expect(markFor('jam')).toEqual({ ink: 'teal', mis: 'yellow', shape: 'ring5' })
     expect(markFor('gitar')).toEqual({ ink: 'indigo', mis: 'pink', shape: 'gitar' })
   })
 

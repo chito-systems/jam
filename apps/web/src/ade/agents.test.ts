@@ -24,6 +24,10 @@ describe('shortName', () => {
     expect(shortName({ name: 'fable' })).toBe('fable')
     expect(shortName({ name: 'cam-', human: 'cam' })).toBe('cam-')
   })
+  it('calls a session with no name of its own an unnamed session', () => {
+    expect(shortName({ name: 'agent', human: 'agent' })).toBe('unnamed session')
+    expect(shortName({ name: 'agent' })).toBe('unnamed session')
+  })
 })
 
 describe('ownerLabel', () => {
