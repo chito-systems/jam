@@ -1,6 +1,7 @@
 // Delegator + dashboard routes: claim/close/list tasks, and the stats the dashboard shows.
 // The rules live in @hh/shared (claimTask/closeTask); this file only exposes them over HTTP.
 import {
+  acceptTask,
   type ApiError,
   type CaptureStatus,
   claimTask,
@@ -8,7 +9,9 @@ import {
   type ContextStore,
   type Dispatcher,
   ROUTES,
+  reportClash,
   type StatsResponse,
+  TaskAcceptRequestSchema,
   TaskClaimRequestSchema,
   TaskCloseRequestSchema,
   type TaskDoc,
@@ -110,7 +113,11 @@ export function registerTaskRoutes(
     const parsed = parse(c, TaskClaimRequestSchema, json.body);
     if (parsed.res) return parsed.res;
     const result = await claimTask(store, parsed.data);
-    if (!result.ok) return c.json(result.conflict, 409);
+    if (!result.ok) {
+      const { team_id, who, side } = parsed.data;
+      await reportClash(dispatcher, { team_id, who, side, conflict: result.conflict });
+      return c.json(result.conflict, 409);
+    }
     const { task } = result;
     await announce(
       task,
@@ -118,6 +125,31 @@ export function registerTaskRoutes(
       `[task claimed] ${task.title} — ${task.owner} is editing ${task.paths.join(", ")}`,
     );
     return c.json(task, 201);
+  });
+
+  app.post(ROUTES.taskAccept, async (c) => {
+    const json = await readJson(c);
+    if (json.res) return json.res;
+    const parsed = parse(c, TaskAcceptRequestSchema, json.body);
+    if (parsed.res) return parsed.res;
+    const id = c.req.param("id");
+    const result = await acceptTask(store, id, parsed.data);
+    if (!result.ok) {
+      if ("conflict" in result) {
+        const { team_id, who, side } = parsed.data;
+        await reportClash(dispatcher, { team_id, who, side, conflict: result.conflict });
+        return c.json(result.conflict, 409);
+      }
+      if ("notFound" in result) return c.json(apiError("task not found"), 404);
+      return c.json(apiError(result.error), 400);
+    }
+    const { task } = result;
+    await announce(
+      task,
+      task.owner,
+      `[task accepted] ${task.title} — ${task.owner} took the work order jam proposed and is editing ${task.paths.join(", ")}`,
+    );
+    return c.json(task);
   });
 
   app.post(ROUTES.taskClose, async (c) => {

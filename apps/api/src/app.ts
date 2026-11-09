@@ -27,6 +27,7 @@ import { CAPTURE_PAGE_HTML } from "./capture-page";
 import { type ChaosSwitch, createChaosSwitch, registerChaosRoutes } from "./chaos-routes";
 import { registerDecisionRoutes } from "./decisions-routes";
 import { registerItemRoutes } from "./items-routes";
+import { registerOwnershipRoutes } from "./ownership-routes";
 import { registerTaskRoutes } from "./tasks-routes";
 
 export interface AppDeps {
@@ -222,6 +223,7 @@ export function createApp(deps: AppDeps): Hono<Env> {
   registerChaosRoutes(app, { dispatcher, chaos, allowSwitch: deps.allowChaosSwitch ?? true });
   registerDecisionRoutes(app, { store });
   registerItemRoutes(app, { store, dispatcher });
+  registerOwnershipRoutes(app, { store });
 
   app.all(ROUTES.mcp, (c) => handleMcpRequest(c.req.raw, { store, dispatcher }));
 

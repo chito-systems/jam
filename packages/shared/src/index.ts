@@ -4,4 +4,6 @@ export * from "./create-store";
 export * from "./elastic";
 export * from "./pipeline";
 export * from "./tasks";
+export * from "./assign";
+export * from "./ownership";
 export * from "./telemetry";

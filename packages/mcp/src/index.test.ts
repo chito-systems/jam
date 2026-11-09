@@ -1,6 +1,6 @@
-import { type CaptureStatus, type Dispatcher, type FeedEvent, type IngestJob, MemoryStore } from "@hh/shared";
+import { type CaptureStatus, type Dispatcher, type FeedEvent, type IngestJob, MemoryStore, type TaskDoc } from "@hh/shared";
 import { describe, expect, it } from "vitest";
-import { handleMcpRequest } from "./index";
+import { handleMcpRequest, nextWork } from "./index";
 
 /** Indexes text jobs straight into the store, like the inline dispatcher will. */
 function fakeDispatcher(store: MemoryStore, published: FeedEvent[] = []): Dispatcher {
@@ -64,7 +64,7 @@ describe("handleMcpRequest", () => {
     expect(body.result.serverInfo.name).toBe("hack-harness-context");
   });
 
-  it("lists the eight tools", async () => {
+  it("lists the eleven tools", async () => {
     const { post } = setup();
     const body = await (await post("tools/list", {})).json();
     const names = body.result.tools.map((t: { name: string }) => t.name).sort();
@@ -74,9 +74,12 @@ describe("handleMcpRequest", () => {
       "context_recent",
       "context_search",
       "item_verdict",
+      "task_accept",
       "task_claim",
       "task_done",
       "task_list",
+      "task_next",
+      "who_owns",
     ]);
   });
 
@@ -195,6 +198,26 @@ describe("task tools", () => {
     expect(res.text).toMatch(/- agent:opus-a: "stats route" holds apps\/api \(task /);
   });
 
+  it("a refused claim writes a [clash] note and lights up the holder's task", async () => {
+    const { call, store, published } = setup();
+    await call("task_claim", { title: "stats route", paths: ["apps/api/"] }, A);
+    await call("task_claim", { title: "fix app", paths: ["apps/api/src/app.ts"] }, B);
+    expect(published.at(-1)).toMatchObject({ event: "task", data: { owner: "agent:opus-a", title: "stats route" } });
+    const [note] = await store.recent({ team_id: "t1", limit: 1 });
+    expect(note).toMatchObject({ who: "agent:opus-b", side: "backend", source_ref: "clash" });
+    expect(note?.text).toBe('[clash] agent:opus-b tried to claim apps/api/src/app.ts but agent:opus-a holds them for "stats route"');
+  });
+
+  it("who_owns names the side, captain and holder", async () => {
+    const { call } = setup();
+    expect((await call("who_owns", { path: "PITCH.md" })).text).toBe(
+      "PITCH.md: shared ground, anyone may claim it\nnobody is working on it right now",
+    );
+    await call("task_claim", { title: "stats route", paths: ["apps/api/"] }, A);
+    const res = await call("who_owns", { path: "apps/api/src/app.ts" });
+    expect(res.text).toMatch(/^apps\/api\/src\/app.ts: backend side, captain cam\nheld by agent:opus-a: "stats route" \(task [0-9a-f-]{36}\)$/);
+  });
+
   it("refuses a claim into the other side's paths", async () => {
     const { call } = setup();
     const res = await call("task_claim", { title: "restyle", paths: ["apps/web/src/App.tsx"] }, A);
@@ -217,11 +240,62 @@ describe("task tools", () => {
     expect(done.isError).toBeFalsy();
     expect(done.text).toContain("done. Freed apps/api");
     expect(published.at(-1)).toMatchObject({ event: "task", data: { status: "done", pr: "42" } });
-    expect((await call("task_list", {}, B)).text).toBe("No open claims.");
+    expect((await call("task_list", {}, B)).text).toBe("No open claims or proposed work.");
     const again = await call("task_claim", { title: "fix app", paths: ["apps/api/src/app.ts"] }, B);
     expect(again.isError).toBeFalsy();
     const unknown = await call("task_done", { id: "nope" }, A);
     expect(unknown.isError).toBe(true);
+  });
+
+  const wo = (id: string, side: "backend" | "frontend", minute: number, extra: Partial<TaskDoc> = {}): TaskDoc => {
+    const at = `2026-11-09T19:${String(minute).padStart(2, "0")}:00.000Z`;
+    return {
+      team_id: "t1", id, title: `order ${id}`, side, owner: "jam", paths: [], status: "proposed",
+      spec: `# spec ${id}`, proposed_by: "jam", reason: `rule for ${id}`, created_at: at, updated_at: at, ...extra,
+    };
+  };
+
+  it("nextWork: named owner beats side, oldest first, the other side never", () => {
+    const tasks = [
+      wo("side-new", "frontend", 5),
+      wo("side-old", "frontend", 1),
+      wo("named", "frontend", 9, { suggested_owner: "agent:jake" }),
+      wo("other", "backend", 0),
+    ];
+    expect(nextWork(tasks, "jake-opus-1", "frontend").map((t) => t.id)).toEqual(["named", "side-old", "side-new"]);
+    expect(nextWork(tasks, "cam-opus-2", "frontend").map((t) => t.id)).toEqual(["side-old", "side-new", "named"]);
+    expect(nextWork([wo("other", "backend", 0)], "jake-opus-1", "frontend")).toEqual([]);
+  });
+
+  it("task_next then task_accept round trip; the accepted order blocks an overlapping claim", async () => {
+    const { call, store, published } = setup();
+    const J = "team_id=t1&who=jake-opus-1&side=frontend";
+    expect((await call("task_next", {}, J)).text).toBe("No proposed work for your side.");
+    await store.upsertTask(wo("other", "backend", 0, { paths: ["apps/api/"] }));
+    await store.upsertTask(wo("w1", "frontend", 1, { paths: ["apps/web/src/brain/"], suggested_owner: "jake" }));
+    expect((await call("task_list", {}, J)).text).toContain("[proposed → jake] frontend · order w1");
+    expect((await call("task_list", { status: "proposed" }, J)).text).toContain("[proposed → backend] backend · order other");
+
+    const next = await call("task_next", {}, J);
+    expect(next.text).toContain("id: w1");
+    expect(next.text).toContain("proposed paths: apps/web/src/brain");
+    expect(next.text).toContain("rule for w1");
+    expect(next.text).toContain("# spec w1");
+    expect(next.text).toContain("To take it: task_accept with this id");
+
+    const accepted = await call("task_accept", { id: "w1" }, J);
+    expect(accepted.isError).toBeFalsy();
+    expect(accepted.text).toContain("Accepted task w1, you hold apps/web/src/brain.");
+    expect(accepted.text).toContain("# spec w1");
+    expect(accepted.text).toContain("task_done with id w1");
+    expect(published.at(-1)).toMatchObject({ event: "task", data: { id: "w1", status: "claimed", owner: "agent:jake-opus-1" } });
+
+    const clash = await call("task_claim", { title: "x", paths: ["apps/web/src/brain/Page.tsx"] }, "team_id=t1&who=sonnet-1&side=frontend");
+    expect(clash.isError).toBe(true);
+    expect(clash.text).toContain("already claimed by agent:jake-opus-1");
+    expect((await call("task_accept", { id: "w1" }, J)).text).toBe("Refused: task is already claimed");
+    expect((await call("task_accept", { id: "other" }, J)).text).toContain("belongs to the other side");
+    expect((await call("task_accept", { id: "nope" }, J)).isError).toBe(true);
   });
 
   it("still grants the claim when the brain write fails", async () => {

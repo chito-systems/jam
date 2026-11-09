@@ -54,7 +54,19 @@ server.on('upgrade', (req, socket, head) => {
     const child = startShell()
     children.add(child)
     const resize = child.stdio[3] as NodeJS.WritableStream | undefined
-    child.stdout?.on('data', (b: Buffer) => ws.send(b))
+    // A shell that exits mid-write, or a dropped socket, emits 'error' on these streams.
+    // Unhandled, that would take the whole bridge down: log once and end this session only.
+    const fail = (what: string) => (e: Error) => {
+      console.error(`terminal session: ${what} failed`, e.message)
+      if (ws.readyState === ws.OPEN) ws.close(1011, 'session error')
+    }
+    child.stdin?.on('error', fail('writing to the shell'))
+    child.stdout?.on('error', fail('reading from the shell'))
+    resize?.on('error', fail('resizing the shell'))
+    ws.on('error', fail('the socket'))
+    child.stdout?.on('data', (b: Buffer) => {
+      if (ws.readyState === ws.OPEN) ws.send(b)
+    })
     child.on('exit', () => {
       children.delete(child)
       ws.close(1000, 'shell exited')
@@ -65,8 +77,8 @@ server.on('upgrade', (req, socket, head) => {
     })
     ws.on('message', (data, binary) => {
       const m = binary ? null : parseClientMessage(data.toString())
-      if (m?.t === 'in') child.stdin?.write(m.d)
-      if (m?.t === 'resize') resize?.write(`${m.cols} ${m.rows}\n`)
+      if (m?.t === 'in' && child.stdin?.writable) child.stdin.write(m.d)
+      if (m?.t === 'resize' && resize?.writable) resize.write(`${m.cols} ${m.rows}\n`)
     })
     ws.on('close', () => {
       child.stdin?.end()

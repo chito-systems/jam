@@ -228,6 +228,27 @@ describe("api", () => {
     expect(((await wrong.json()) as TaskConflict).reason).toBe("wrong_side");
   });
 
+  it("a refused claim writes a [clash] note and publishes the holder's task", async () => {
+    const { app, jobs, events } = setup();
+    const held = (await (await app.request("/api/tasks", claim(["apps/api/"]))).json()) as TaskDoc;
+    const res = await app.request("/api/tasks", claim(["apps/api/src/app.ts"], { who: "agent:opus-2", title: "fix app" }));
+    expect(res.status).toBe(409);
+    expect(events.at(-1)).toEqual({ event: "task", data: held });
+    expect(jobs.at(-1)).toMatchObject({ who: "agent:opus-2", side: "backend", source_ref: "clash" });
+    expect(jobs.at(-1)?.text).toBe('[clash] agent:opus-2 tried to claim apps/api/src/app.ts but agent:opus-1 holds them for "tasks api"');
+    await app.request("/api/tasks", claim(["apps/web/src/"]));
+    expect(jobs.at(-1)?.text).toBe("[clash] agent:opus-1 (backend) tried to claim apps/web/src, which belong to the frontend side");
+  });
+
+  it("a failed clash note leaves the 409 alone", async () => {
+    const { app, dispatcher } = setup();
+    await app.request("/api/tasks", claim(["apps/api/"]));
+    dispatcher.dispatch = async () => {
+      throw new Error("elastic down");
+    };
+    expect((await app.request("/api/tasks", claim(["apps/api/src/app.ts"]))).status).toBe(409);
+  });
+
   it("close frees the paths; unknown id 404s", async () => {
     const { app, jobs, events } = setup();
     const task = (await (await app.request("/api/tasks", claim(["apps/api/"]))).json()) as TaskDoc;
@@ -240,6 +261,36 @@ describe("api", () => {
     expect((await app.request("/api/tasks", claim(["apps/api/src/"]))).status).toBe(201);
     const missing = await app.request("/api/tasks/nope/close", post({ team_id: "t1", who: "cam" }));
     expect(missing.status).toBe(404);
+  });
+
+  it("accepts a proposed work order: 200 claimed, feed event, brain note; 400/404/409 otherwise", async () => {
+    const store = new MemoryStore();
+    const { app, jobs, events } = setup(store);
+    const at = "2026-11-09T19:00:00.000Z";
+    const wo = (id: string, paths: string[]): TaskDoc => ({
+      team_id: "t1", id, title: `order ${id}`, side: "backend", owner: "jam", paths, status: "proposed",
+      spec: "# spec", proposed_by: "jam", suggested_owner: "cam", created_at: at, updated_at: at,
+    });
+    await store.upsertTask(wo("wo1", ["apps/api/"]));
+    await store.upsertTask(wo("wo2", ["apps/api/src/app.ts"]));
+    await store.upsertTask(wo("wo3", []));
+    const accept = (id: string, extra: Record<string, unknown> = {}) =>
+      app.request(`/api/tasks/${id}/accept`, post({ team_id: "t1", who: "cam", ...extra }));
+
+    const res = await accept("wo1");
+    expect(res.status).toBe(200);
+    const task = (await res.json()) as TaskDoc;
+    expect(task).toMatchObject({ id: "wo1", status: "claimed", owner: "cam", paths: ["apps/api"], spec: "# spec" });
+    expect(events).toEqual([{ event: "task", data: task }]);
+    expect(jobs[0]).toMatchObject({ who: "cam", source_ref: "task:wo1" });
+    expect(jobs[0]?.text).toBe("[task accepted] order wo1 — cam took the work order jam proposed and is editing apps/api");
+
+    expect((await accept("wo2")).status).toBe(409);
+    expect((await accept("wo1")).status).toBe(400);
+    expect(((await (await accept("wo3")).json()) as { error: string }).error).toContain("no paths yet");
+    expect((await accept("wo3", { paths: ["apps/worker/"] })).status).toBe(200);
+    expect((await accept("nope")).status).toBe(404);
+    expect((await app.request("/api/tasks/wo2/accept", post({ team_id: "t1" }))).status).toBe(400);
   });
 
   it("lists tasks with filters", async () => {
