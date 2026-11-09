@@ -17,6 +17,9 @@ spec:
       labels:
         app: app
     spec:
+      # Radar check "Service account token auto-mount": the app never calls the Kubernetes API,
+      # so it gets no token to steal.
+      automountServiceAccountToken: false
       containers:
         - name: app
           image: app
@@ -76,7 +79,17 @@ spec:
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false
+            # Radar check "Read-only root filesystem": nothing in the image can be modified at
+            # runtime. The only writable path is /tmp (tsx's compile cache, ffmpeg re-encodes).
+            readOnlyRootFilesystem: true
             seccompProfile:
               type: RuntimeDefault
             capabilities:
               drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
