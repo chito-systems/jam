@@ -236,6 +236,36 @@ describe("recent and ping", () => {
   });
 });
 
+describe("rawByIds", () => {
+  it("is one terms query on id, scoped to the team, sized to the deduped ids", async () => {
+    const client = fakeClient();
+    client.search.mockResolvedValueOnce(searchRes([{ _index: "raw_x", _source: raw }]));
+    const docs = await new ElasticStore(client, opts).rawByIds("t1", ["c1:0", "c2:0", "c1:0"]);
+    expect(docs).toEqual([raw]);
+    expect(client.search).toHaveBeenCalledWith({
+      index: "raw_x",
+      size: 2,
+      query: { bool: { filter: [{ term: { team_id: "t1" } }, { terms: { id: ["c1:0", "c2:0"] } }] } },
+    });
+  });
+
+  it("sends nothing for no ids and caps a huge list at 500", async () => {
+    const client = fakeClient();
+    const store = new ElasticStore(client, opts);
+    expect(await store.rawByIds("t1", [])).toEqual([]);
+    expect(client.search).not.toHaveBeenCalled();
+    await store.rawByIds("t1", Array.from({ length: 900 }, (_, n) => `c:${n}`));
+    expect(client.search.mock.calls[0]?.[0].size).toBe(500);
+  });
+
+  it("MemoryStore returns only this team's chunks and skips missing ids", async () => {
+    const mem = new MemoryStore();
+    await mem.indexRaw([raw, { ...raw, id: "c9:0", team_id: "other" }]);
+    expect(await mem.rawByIds("t1", ["c1:0", "c9:0", "nope"])).toEqual([raw]);
+    expect(await mem.rawByIds("t1", [])).toEqual([]);
+  });
+});
+
 describe("tasks and counts", () => {
   it("upserts a task by id and waits for refresh", async () => {
     const client = fakeClient();
