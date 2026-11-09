@@ -3,14 +3,16 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { createStoreFromEnv } from "@hh/shared";
-import { createInlineDispatcher, createTranscriberFromEnv } from "@hh/worker";
+import { createInlineDispatcher, createLibrarianFromEnv, createTranscriberFromEnv } from "@hh/worker";
 import { createApp } from "./app";
 
 const store = createStoreFromEnv(process.env);
 const transcriber = createTranscriberFromEnv(process.env);
+const librarian = createLibrarianFromEnv(process.env);
 const dispatcher = createInlineDispatcher({
   store,
   transcriber,
+  librarian,
   chaos: process.env.CHAOS_MODE === "true",
 });
 
@@ -27,6 +29,6 @@ try {
 const port = Number(process.env.PORT ?? process.env.API_PORT ?? 3000);
 serve({ fetch: createApp({ store, dispatcher, webDist }).fetch, port }, (info) => {
   console.log(
-    `api listening on :${info.port} store=${store.constructor.name} transcriber=${transcriber?.name ?? "none"} chaos=${process.env.CHAOS_MODE === "true"} web=${webDist ?? "none"}`,
+    `api listening on :${info.port} store=${store.constructor.name} transcriber=${transcriber?.name ?? "none"} librarian=${librarian?.name ?? "none"} chaos=${process.env.CHAOS_MODE === "true"} web=${webDist ?? "none"}`,
   );
 });
