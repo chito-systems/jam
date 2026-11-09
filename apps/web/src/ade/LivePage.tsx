@@ -16,9 +16,9 @@ import { type Outgoing, Talk } from './Talk'
 // agent transcripts yet, so a "session" here is a task claim and what the brain holds about it.
 
 const FEED = 'feed'
-const TASK_STATE: Record<TaskDoc['status'], RunState> = { claimed: 'running', done: 'done', released: 'cancelled' }
-const TASK_LABEL: Record<TaskDoc['status'], string> = { claimed: 'Working', done: 'Done', released: 'Released' }
-const TASK_MARK: Record<TaskDoc['status'], MarkMode> = { claimed: 'working', done: 'still', released: 'idle' }
+const TASK_STATE: Record<TaskDoc['status'], RunState> = { proposed: 'needs_input', claimed: 'running', done: 'done', released: 'cancelled' }
+const TASK_LABEL: Record<TaskDoc['status'], string> = { proposed: 'Proposed', claimed: 'Working', done: 'Done', released: 'Released' }
+const TASK_MARK: Record<TaskDoc['status'], MarkMode> = { proposed: 'waiting', claimed: 'working', done: 'still', released: 'idle' }
 const CAPTURE_LABEL: Record<CaptureStatus['state'], string> = {
   queued: 'queued',
   transcribing: 'transcribing',

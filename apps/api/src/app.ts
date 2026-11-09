@@ -24,6 +24,7 @@ import { cors } from "hono/cors";
 import { matchedRoutes } from "hono/route";
 import { streamSSE } from "hono/streaming";
 import { CAPTURE_PAGE_HTML } from "./capture-page";
+import { type ChaosSwitch, createChaosSwitch, registerChaosRoutes } from "./chaos-routes";
 import { registerDecisionRoutes } from "./decisions-routes";
 import { registerItemRoutes } from "./items-routes";
 import { registerTaskRoutes } from "./tasks-routes";
@@ -33,6 +34,10 @@ export interface AppDeps {
   dispatcher: Dispatcher;
   /** Absolute path to the built web app (apps/web/dist). Served with an SPA fallback when set. */
   webDist?: string;
+  /** The live chaos switch (shared with the pipeline). Defaults to a fresh one, off. */
+  chaos?: ChaosSwitch;
+  /** False when env CHAOS_SWITCH=off: POST /api/chaos then returns 403. Default true. */
+  allowChaosSwitch?: boolean;
 }
 
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -70,6 +75,7 @@ export const isAudioUpload = (mime: string, type: string) =>
 
 export function createApp(deps: AppDeps): Hono<Env> {
   const { store, dispatcher } = deps;
+  const chaos = deps.chaos ?? createChaosSwitch(false);
   const app = new Hono<Env>();
 
   // One span per request, named by the matched route pattern (not the raw path: low cardinality).
@@ -212,7 +218,8 @@ export function createApp(deps: AppDeps): Hono<Env> {
     });
   });
 
-  registerTaskRoutes(app, { store, dispatcher });
+  registerTaskRoutes(app, { store, dispatcher, chaos });
+  registerChaosRoutes(app, { dispatcher, chaos, allowSwitch: deps.allowChaosSwitch ?? true });
   registerDecisionRoutes(app, { store });
   registerItemRoutes(app, { store, dispatcher });
 

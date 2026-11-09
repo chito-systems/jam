@@ -1,3 +1,4 @@
+import { type Context, context, metrics } from "@opentelemetry/api";
 import type { CaptureStatus, Dispatcher, FeedEvent, IngestJob, RawDoc } from "@hh/shared";
 import type { Librarian } from "./librarian";
 import { type PipelineDeps, PipelineError, runPipeline } from "./pipeline";
@@ -14,6 +15,20 @@ export const RECENT_ITEMS = 50;
 
 type Listener = (event: FeedEvent) => void;
 
+/** Instruments via the OTel API: no-ops without the SDK. Created per dispatcher, after otel.ts registered the provider. */
+function captureMetrics() {
+  const meter = metrics.getMeter("hack-harness");
+  return {
+    // The SLO: "searchable within 10 s, p95". Dashboards and alerts key on this name and unit.
+    timeToSearchable: meter.createHistogram("jam.capture.time_to_searchable", {
+      unit: "ms",
+      description: "Time from upload received to raw docs searchable",
+    }),
+    captures: meter.createCounter("jam.capture.total", { description: "Captures that reached a terminal state" }),
+    items: meter.createCounter("jam.librarian.items", { description: "Items the librarian extracted" }),
+  };
+}
+
 /**
  * Runs the pipeline in this process: at most 2 captures at a time, the rest queued in order.
  * After a capture is indexed, the librarian (if any) runs one call at a time in the background.
@@ -21,7 +36,9 @@ type Listener = (event: FeedEvent) => void;
 export function createInlineDispatcher(deps: DispatcherDeps): Dispatcher {
   const statuses = new Map<string, CaptureStatus>();
   const listeners = new Map<string, Set<Listener>>();
-  const queue: IngestJob[] = [];
+  // Each job keeps the context it was dispatched in, so its pipeline joins the request's trace.
+  const queue: { job: IngestJob; ctx: Context }[] = [];
+  const m = captureMetrics();
   let running = 0;
   let librarianChain: Promise<void> = Promise.resolve();
 
@@ -69,6 +86,7 @@ export function createInlineDispatcher(deps: DispatcherDeps): Dispatcher {
         }),
       );
       await deps.store.indexItems(items);
+      for (const item of items) m.items.add(1, { kind: item.kind });
       for (const item of items) emit(job.team_id, { event: "item", data: item });
     } catch (err) {
       console.error("librarian failed", {
@@ -86,19 +104,23 @@ export function createInlineDispatcher(deps: DispatcherDeps): Dispatcher {
     // AI review comments stay searchable as raw context but are not mined for decisions.
     const machineMade = job.source_ref?.startsWith("task:") || job.type === "pr" || job.type === "review";
     if (!lib || docs.length === 0 || machineMade) return;
-    librarianChain = librarianChain.then(() => librarian(job, docs, lib));
+    const ctx = context.active();
+    librarianChain = librarianChain.then(() => context.with(ctx, () => librarian(job, docs, lib)));
   };
 
   const run = async (job: IngestJob) => {
     try {
       const docs = await runPipeline(job, deps, (state) => update(job.capture_id, { state }));
       const searchable = new Date();
+      const ms_to_searchable = searchable.getTime() - Date.parse(job.received_at);
+      m.timeToSearchable.record(ms_to_searchable, { type: job.type, team_id: job.team_id });
+      m.captures.add(1, { state: "indexed", type: job.type });
       for (const doc of docs) emit(job.team_id, { event: "raw", data: doc });
       update(job.capture_id, {
         state: "indexed",
         raw_ids: docs.map((d) => d.id),
         searchable_at: searchable.toISOString(),
-        ms_to_searchable: searchable.getTime() - Date.parse(job.received_at),
+        ms_to_searchable,
       });
       enqueueLibrarian(job, docs);
     } catch (err) {
@@ -110,15 +132,16 @@ export function createInlineDispatcher(deps: DispatcherDeps): Dispatcher {
         step,
         error: message,
       });
+      m.captures.add(1, { state: "failed", type: job.type });
       update(job.capture_id, { state: "failed", error: message });
     }
   };
 
   const pump = () => {
     while (running < MAX_CONCURRENT && queue.length > 0) {
-      const job = queue.shift() as IngestJob; // length checked above
+      const { job, ctx } = queue.shift() as { job: IngestJob; ctx: Context }; // length checked above
       running++;
-      void run(job).finally(() => {
+      void context.with(ctx, () => run(job)).finally(() => {
         running--;
         pump();
       });
@@ -137,7 +160,7 @@ export function createInlineDispatcher(deps: DispatcherDeps): Dispatcher {
         raw_ids: [],
       };
       save(status);
-      queue.push(job);
+      queue.push({ job, ctx: context.active() });
       pump();
       return status;
     },
