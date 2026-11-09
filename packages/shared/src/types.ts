@@ -14,6 +14,7 @@ export const ROUTES = {
   tasks: "/api/tasks", // GET ?TasksParams -> TasksResponse · POST TaskClaimRequest -> 201 TaskDoc | 409 TaskConflict
   taskClose: "/api/tasks/:id/close", // POST TaskCloseRequest -> TaskDoc
   stats: "/api/stats", // GET ?team_id= -> StatsResponse (the dashboard's numbers)
+  itemVerdict: "/api/items/:id/verdict", // POST ItemVerdictRequest -> ItemDoc (a human confirms or rejects what the librarian extracted)
   decisionsMd: "/api/decisions.md", // GET ?team_id= -> text/markdown: the decision log, each entry quoting the raw chunks it came from
   mcp: "/mcp", // MCP streamable HTTP: /mcp?team_id=<code>&who=<agent name>&side=<backend|frontend>
   healthz: "/healthz",
@@ -72,6 +73,9 @@ export const SIDE_PATHS: Record<Side, readonly string[]> = {
 export const TaskStatusSchema = z.enum(["claimed", "done", "released"]);
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
+export const ItemVerdictSchema = z.enum(["confirmed", "rejected"]);
+export type ItemVerdict = z.infer<typeof ItemVerdictSchema>;
+
 const IsoUtcSchema = z.iso.datetime(); // "2026-11-09T19:04:05.123Z" — UTC only
 const TeamIdSchema = z.string().min(1).max(64);
 const WhoSchema = z.string().min(1).max(64); // cam | jake | gitar | agent:opus-1 ...
@@ -104,8 +108,21 @@ export const ItemDocSchema = z.object({
   tags: z.array(z.string()).default([]),
   raw_ids: z.array(z.string()).default([]), // provenance: which raw chunks this came from
   status: ItemStatusSchema.default("open"),
+  // Grading. The librarian scores itself; a human has the last word.
+  confidence: z.number().min(0).max(1).optional(), // librarian's own 0..1: how directly the quoted words support this item
+  verdict: ItemVerdictSchema.optional(), // set by a person: confirmed = "yes, we said that"; rejected = "no"
+  verified_by: WhoSchema.optional(),
+  verified_at: IsoUtcSchema.optional(),
 });
 export type ItemDoc = z.infer<typeof ItemDocSchema>;
+
+/** POST /api/items/:id/verdict. Rejected items stay stored (and visible as rejected) but leave the decision log. */
+export const ItemVerdictRequestSchema = z.object({
+  team_id: TeamIdSchema,
+  who: WhoSchema,
+  verdict: ItemVerdictSchema,
+});
+export type ItemVerdictRequest = z.infer<typeof ItemVerdictRequestSchema>;
 
 // ---------- Ingest ----------
 /** POST /api/ingest with content-type application/json. */
@@ -202,6 +219,7 @@ export const ItemsParamsSchema = z.object({
   team_id: TeamIdSchema,
   kind: ItemKindSchema.optional(),
   status: ItemStatusSchema.optional(),
+  verdict: ItemVerdictSchema.optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 export type ItemsParams = z.infer<typeof ItemsParamsSchema>;
