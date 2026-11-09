@@ -112,6 +112,33 @@ describe("OpenAITranscriber response", () => {
     expect(out).toEqual({ segments: [], duration_s: 3 });
   });
 
+  it("re-encodes and retries once when the API rejects the upload as undecodable", async () => {
+    const sent: string[] = [];
+    const impl = (async (_url: unknown, init: { body: FormData }) => {
+      const file = init.body.get("file") as File;
+      sent.push(file.name);
+      return sent.length === 1
+        ? new Response(JSON.stringify({ error: { message: "could not be decoded" } }), { status: 400 })
+        : new Response(JSON.stringify({ text: "hello team", duration: 2 }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const transcode = async () => ({ data: new Uint8Array([1, 2, 3]), mime: "audio/mpeg", filename: "capture.mp3" });
+    const out = await new OpenAITranscriber({ apiKey: KEY, fetchImpl: impl, transcode }).transcribe(
+      audio("audio/webm;codecs=opus"),
+    );
+    expect(sent).toEqual(["capture.webm", "capture.mp3"]);
+    expect(out.segments[0]?.text).toBe("hello team");
+  });
+
+  it("surfaces the transcoder's reason when the recording has no audio", async () => {
+    const { impl } = fakeFetch(400, { error: { message: "could not be decoded" } });
+    const transcode = async () => {
+      throw new Error("the recording has no decodable audio (ffmpeg: Invalid data)");
+    };
+    await expect(
+      new OpenAITranscriber({ apiKey: KEY, fetchImpl: impl, transcode }).transcribe(audio("audio/webm")),
+    ).rejects.toThrow(/no decodable audio/);
+  });
+
   it("throws on non-2xx with the status and body, never the key", async () => {
     const { impl } = fakeFetch(401, { error: { message: "Incorrect API key provided" } });
     const t = new OpenAITranscriber({ apiKey: KEY, fetchImpl: impl });

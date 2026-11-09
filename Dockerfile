@@ -5,7 +5,7 @@ FROM node:22-alpine
 
 # tini as PID 1 forwards SIGTERM to node, so a pod shuts down when Kubernetes
 # asks instead of waiting out the grace period.
-RUN apk add --no-cache tini
+RUN apk add --no-cache tini ffmpeg
 
 # pnpm pinned to the root package.json "packageManager" version.
 RUN corepack enable && corepack prepare pnpm@10.28.1 --activate

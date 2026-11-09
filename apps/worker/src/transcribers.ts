@@ -1,6 +1,7 @@
 // Transcribers for the worker. OpenAI today (plain fetch, no SDK); local whisper.cpp later.
 import type { Transcriber, Transcript, TranscriptSegment } from "@hh/shared";
 import { withSpan } from "@hh/shared";
+import { type AudioBlob, type Transcode, transcodeToMp3 } from "./ffmpeg";
 
 type FetchImpl = typeof fetch;
 
@@ -9,6 +10,8 @@ export interface OpenAITranscriberOptions {
   model?: string;
   baseUrl?: string;
   fetchImpl?: FetchImpl;
+  /** Re-encodes a rejected upload before one retry. Defaults to ffmpeg -> mp3. */
+  transcode?: Transcode;
 }
 
 interface OpenAITranscriptionResponse {
@@ -60,8 +63,10 @@ export class OpenAITranscriber implements Transcriber {
   private readonly model: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: FetchImpl;
+  private readonly transcode: Transcode;
 
   constructor(opts: OpenAITranscriberOptions) {
+    this.transcode = opts.transcode ?? transcodeToMp3;
     this.apiKey = opts.apiKey;
     this.model = opts.model || "whisper-1";
     this.baseUrl = (opts.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
@@ -69,31 +74,48 @@ export class OpenAITranscriber implements Transcriber {
     this.name = `openai:${this.model}`;
   }
 
-  transcribe(audio: { data: Uint8Array; mime: string; filename?: string }): Promise<Transcript> {
+  private send(audio: AudioBlob): Promise<Response> {
+    const mime = baseMime(audio.mime);
+    const form = new FormData();
+    // Copy into a fresh ArrayBuffer-backed view so Blob accepts it regardless of the source buffer type.
+    const blob = new Blob([new Uint8Array(audio.data)], { type: mime });
+    form.append("file", blob, uploadFilename(mime, audio.filename));
+    form.append("model", this.model);
+    // Only whisper models support verbose_json + segment timestamps; newer models return text only.
+    if (this.model.startsWith("whisper")) {
+      form.append("response_format", "verbose_json");
+      form.append("timestamp_granularities[]", "segment");
+    } else {
+      form.append("response_format", "json");
+    }
+    return this.fetchImpl(`${this.baseUrl}/audio/transcriptions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+      body: form,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  }
+
+  transcribe(audio: AudioBlob): Promise<Transcript> {
     const mime = baseMime(audio.mime);
     return withSpan(
       "transcribe.openai",
       { model: this.model, bytes: audio.data.byteLength, mime },
       async (span) => {
-        const form = new FormData();
-        // Copy into a fresh ArrayBuffer-backed view so Blob accepts it regardless of the source buffer type.
-        const blob = new Blob([new Uint8Array(audio.data)], { type: mime });
-        form.append("file", blob, uploadFilename(mime, audio.filename));
-        form.append("model", this.model);
-        // Only whisper models support verbose_json + segment timestamps; newer models return text only.
-        if (this.model.startsWith("whisper")) {
-          form.append("response_format", "verbose_json");
-          form.append("timestamp_granularities[]", "segment");
-        } else {
-          form.append("response_format", "json");
+        let res = await this.send(audio);
+        if (res.status === 400) {
+          // Usually "could not be decoded": a browser recording the API won't read. Re-encode and retry once.
+          const first = (await res.text().catch(() => "")).slice(0, 200);
+          const magic = Buffer.from(audio.data.slice(0, 8)).toString("hex");
+          console.warn("transcription rejected the upload; re-encoding with ffmpeg", {
+            mime,
+            bytes: audio.data.byteLength,
+            magic,
+            first,
+          });
+          span.setAttribute("transcoded", true);
+          res = await this.send(await this.transcode(audio));
         }
-
-        const res = await this.fetchImpl(`${this.baseUrl}/audio/transcriptions`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${this.apiKey}` },
-          body: form,
-          signal: AbortSignal.timeout(TIMEOUT_MS),
-        });
         if (!res.ok) {
           const body = (await res.text().catch(() => "")).slice(0, 300);
           throw new Error(`OpenAI transcription failed: ${res.status} ${res.statusText} ${body}`.trim());
