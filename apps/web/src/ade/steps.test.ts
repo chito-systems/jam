@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agentCount, mcpCommand, type Signals, setupLine, stepStatus } from './steps'
+import { agentCount, mcpCommand, phoneSteps, type Signals, setupLine, stepStatus } from './steps'
 
 const base: Signals = {
   identity: { team: 'jam', who: 'jake', persisted: true },
@@ -80,5 +80,16 @@ describe('mcp command', () => {
     const who = url(mcpCommand('https://x.dev', { team: 't', who: 'n'.repeat(64) }, 'backend')).searchParams.get('who') ?? ''
     expect(who.length).toBe(56)
     expect(who.endsWith('-agent')).toBe(true)
+  })
+})
+
+describe('phone setup', () => {
+  it('keeps agents and the terminal off the phone, and the home screen out of the app', () => {
+    expect(phoneSteps(true)).toEqual(['in', 'mic', 'say'])
+    expect(phoneSteps(false)).toEqual(['in', 'mic', 'say', 'install'])
+  })
+  it('counts only the phone steps', () => {
+    const status = { in: true, install: false, mic: true, say: false, agent: false, terminal: false }
+    expect(setupLine(status, phoneSteps(true))).toBe('2 of 3 set up')
   })
 })

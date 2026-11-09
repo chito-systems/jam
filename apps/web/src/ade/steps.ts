@@ -13,6 +13,12 @@ export type Bridge = 'checking' | 'running' | 'not running'
 export type StepId = 'in' | 'install' | 'mic' | 'say' | 'agent' | 'terminal'
 export const STEPS: StepId[] = ['in', 'install', 'mic', 'say', 'agent', 'terminal']
 
+/** On a phone: who you are, the mic, one thing said, and (in a browser, not the app) the home screen.
+ *  Agents and the terminal live on a laptop, so they are not phone steps. */
+export function phoneSteps(inApp: boolean): StepId[] {
+  return inApp ? ['in', 'mic', 'say'] : ['in', 'mic', 'say', 'install']
+}
+
 export type Signals = {
   identity: Identity
   standalone: boolean
@@ -42,8 +48,8 @@ export function stepStatus(s: Signals): Record<StepId, boolean> {
 }
 
 /** "3 of 6 set up" */
-export function setupLine(status: Record<StepId, boolean>): string {
-  return `${STEPS.filter((id) => status[id]).length} of ${STEPS.length} set up`
+export function setupLine(status: Record<StepId, boolean>, steps: StepId[] = STEPS): string {
+  return `${steps.filter((id) => status[id]).length} of ${steps.length} set up`
 }
 
 /** The MCP server takes who up to 56 characters; leave room for "-agent". */
