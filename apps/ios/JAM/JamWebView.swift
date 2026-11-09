@@ -4,6 +4,8 @@ import WebKit
 struct JamWebView: UIViewRepresentable {
     let url: URL
     @Binding var failure: String?
+    @Binding var loaded: Bool
+    @Binding var attempt: Int
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -30,7 +32,7 @@ struct JamWebView: UIViewRepresentable {
         let refresh = UIRefreshControl()
         refresh.addTarget(context.coordinator, action: #selector(Coordinator.reload(_:)), for: .valueChanged)
         web.scrollView.refreshControl = refresh
-        web.load(URLRequest(url: url))
+        web.load(URLRequest(url: url, timeoutInterval: 8))
         context.coordinator.web = web
         return web
     }
@@ -70,12 +72,31 @@ struct JamWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { fail(error) }
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { fail(error) }
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { parent.failure = nil }
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            parent.failure = nil
+            parent.loaded = true
+            parent.attempt = 0
+        }
 
+        /// Tailscale on iOS often needs a few seconds to come back after the app opens, so a
+        /// failed load retries quietly (about 20 s) before the app says it can't reach the server.
         private func fail(_ error: Error) {
             let e = error as NSError
             if e.code == NSURLErrorCancelled { return }
+            if parent.attempt < 10 {
+                parent.attempt += 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    guard let self, let web = self.web else { return }
+                    web.load(URLRequest(url: self.parent.url, timeoutInterval: 8))
+                }
+                return
+            }
             parent.failure = e.localizedDescription
+        }
+
+        // The web content process can be killed in the background (memory); reload instead of a blank page.
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            webView.reload()
         }
 
         // Links that leave JAM open in Safari.

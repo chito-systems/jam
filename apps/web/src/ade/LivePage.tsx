@@ -73,7 +73,8 @@ export function LivePage() {
       ) : (
         <Shell id={id} theme={theme} flip={flip} onSignOut={signOut} onLoaded={onLoaded} />
       )}
-      {intro && <Intro ready={!id || loaded} onDone={() => setIntro(false)} />}
+      {/* The phone boots straight to the companion: no canvas load-in on a phone's first second. */}
+      {intro && !phone && <Intro ready={!id || loaded} onDone={() => setIntro(false)} />}
     </ThemeCtx.Provider>
   )
 }

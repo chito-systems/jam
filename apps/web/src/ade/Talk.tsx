@@ -160,6 +160,8 @@ export function Talk({ id, onOutgoing, toggle = false, onPress }: TalkProps) {
     r.rec.stop()
   }
 
+  const toggleRef = useRef(toggle)
+  toggleRef.current = toggle
   const api = useRef({ start, stop })
   api.current = { start, stop }
 
@@ -178,7 +180,11 @@ export function Talk({ id, onOutgoing, toggle = false, onPress }: TalkProps) {
       e.preventDefault()
       api.current.stop(true)
     }
-    const blur = () => pressing.current && api.current.stop(true)
+    // Hold mode: letting go of the window is letting go of the button. Toggle mode (the phone)
+    // ignores blur, which iOS fires when the mic switches on; it sends when the app is put away.
+    const blur = () => !toggleRef.current && pressing.current && api.current.stop(true)
+    const hidden = () => document.visibilityState === 'hidden' && pressing.current && api.current.stop(true)
+    document.addEventListener('visibilitychange', hidden)
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
     window.addEventListener('blur', blur)
@@ -186,6 +192,7 @@ export function Talk({ id, onOutgoing, toggle = false, onPress }: TalkProps) {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       window.removeEventListener('blur', blur)
+      document.removeEventListener('visibilitychange', hidden)
       api.current.stop(false)
     }
   }, [])

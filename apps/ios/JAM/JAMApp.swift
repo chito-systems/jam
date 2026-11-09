@@ -1,13 +1,18 @@
 import AVFoundation
 import SwiftUI
 
-/// JAM on iPhone: the web workspace full screen, with the microphone allowed for hold to talk.
-/// If the server can't be reached, a native screen asks for its address and keeps it.
+/// JAM on iPhone: the web workspace full screen, with the microphone allowed for talk.
+/// While the page loads, a native JAM screen shows; if the server can't be reached after
+/// quiet retries, a native screen asks for its address and keeps it.
 @main
 struct JAMApp: App {
     init() {
-        // Recording mutes haptics by default; hold to talk wants the tap felt.
-        try? AVAudioSession.sharedInstance().setAllowHapticsAndSystemSoundsDuringRecording(true)
+        // Set the session up for recording once, at launch: switching category when the mic
+        // opens mid-tap is what stalls or silences the first moment of a recording.
+        let s = AVAudioSession.sharedInstance()
+        try? s.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetoothA2DP])
+        try? s.setAllowHapticsAndSystemSoundsDuringRecording(true)
+        try? s.setActive(true)
     }
 
     var body: some Scene {
@@ -15,30 +20,52 @@ struct JAMApp: App {
     }
 }
 
+enum Server {
+    static let defaultURL = "https://computer100.tail75f6b5.ts.net"
+}
+
 struct RootView: View {
     @AppStorage("server") private var server = Server.defaultURL
     @State private var editing = false
     @State private var failure: String?
+    @State private var loaded = false
+    @State private var attempt = 0
 
     var body: some View {
         ZStack {
             Color("Paper").ignoresSafeArea()
             if let url = URL(string: server), !editing {
-                JamWebView(url: url, failure: $failure)
+                JamWebView(url: url, failure: $failure, loaded: $loaded, attempt: $attempt)
                     .ignoresSafeArea()
+                    .opacity(loaded ? 1 : 0)
+            }
+            if !loaded && failure == nil && !editing {
+                Connecting(attempt: attempt)
             }
             if editing || failure != nil {
                 ServerSheet(server: $server, failure: failure) {
                     failure = nil
                     editing = false
+                    loaded = false
+                    attempt = 0
                 }
             }
         }
     }
 }
 
-enum Server {
-    static let defaultURL = "https://computer100.tail75f6b5.ts.net"
+/// What shows while the page loads: the wordmark, and after a few tries, why it's slow.
+struct Connecting: View {
+    let attempt: Int
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Text("JAM").font(.system(size: 40, weight: .heavy)).tracking(-1.2)
+            Text(attempt < 2 ? "Connecting…" : "Waiting for Tailscale…")
+                .font(.footnote.monospaced())
+                .foregroundStyle(.secondary)
+        }
+    }
 }
 
 /// Where JAM lives: shown when the server can't be reached.
@@ -54,7 +81,7 @@ struct ServerSheet: View {
             if let failure {
                 Text("Can't reach \(server)").font(.headline)
                 Text(failure).font(.subheadline).foregroundStyle(.secondary)
-                Text("Is the laptop running JAM, and is this phone on Tailscale or the same Wi-Fi?")
+                Text("Open the Tailscale app and check it's connected, and that the laptop is running JAM.")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             Text("SERVER").font(.caption.monospaced()).foregroundStyle(.secondary)

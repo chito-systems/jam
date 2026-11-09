@@ -37,6 +37,13 @@ createServer(async (req, res) => {
       if (!up.body) return res.end()
       const body = Readable.fromWeb(up.body)
       req.on('close', () => body.destroy())
+      // A long-lived stream (SSE) dropping upstream ends this one response, never the server;
+      // the page's EventSource reconnects on its own.
+      body.on('error', (e) => {
+        console.warn(`upstream ${req.url} ended: ${e.cause?.code ?? e.message}`)
+        res.destroy()
+      })
+      res.on('error', () => body.destroy())
       body.pipe(res)
     } catch (e) {
       console.error(`proxy ${req.method} ${req.url} failed`, e)
@@ -65,3 +72,7 @@ createServer(async (req, res) => {
   }
   createReadStream(file).pipe(res)
 }).listen(PORT, () => console.log(`JAM on :${PORT}, API → ${API}`))
+
+// One bad socket must not take the phone's whole connection down with it.
+process.on('uncaughtException', (e) => console.error('uncaught (kept running):', e))
+process.on('unhandledRejection', (e) => console.error('unhandled rejection (kept running):', e))
