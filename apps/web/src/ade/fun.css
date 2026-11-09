@@ -1,0 +1,229 @@
+/* Fun mode: the Capture | Fun switch in the header, and the mini browser it opens.
+   Only ade.css tokens; the window is portalled to body, so it sets its own font. */
+
+.fun-seg {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+  margin: 0;
+  min-width: 0;
+}
+.fun-seg button {
+  border: 0;
+  background: none;
+  color: var(--mute);
+  font: 500 12px var(--sans);
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.fun-seg button[aria-pressed="true"] {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+.fun-win {
+  --sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+  position: fixed;
+  right: 16px;
+  bottom: 38px;
+  z-index: 60;
+  width: 360px;
+  height: 460px;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  font: 13px var(--sans);
+}
+.fun-win button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.fun-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--panel);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.fun-title:active {
+  cursor: grabbing;
+}
+.fun-dots {
+  display: flex;
+  gap: 6px;
+}
+.fun-dot {
+  display: block;
+  width: 11px;
+  height: 11px;
+  padding: 0;
+  border-radius: 50%;
+  border: 0;
+  background: var(--line);
+}
+.fun-dot.close {
+  background: var(--red);
+}
+.fun-dot.close:hover {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--red) 30%, transparent);
+}
+.fun-name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.fun-name b {
+  font: 800 14px "Bricolage Grotesque", var(--sans);
+  letter-spacing: -0.02em;
+}
+.fun-name small {
+  font: 11px var(--mono);
+  color: var(--mute);
+}
+
+.fun-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.fun-tabs button {
+  border: 1px solid transparent;
+  border-bottom: 0;
+  background: none;
+  padding: 5px 14px;
+  border-radius: 6px 6px 0 0;
+  color: var(--mute);
+  margin-bottom: -1px;
+}
+.fun-tabs button[aria-selected="true"] {
+  background: var(--paper);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+.fun-addr {
+  margin: 8px 10px 0;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  font: 11.5px var(--mono);
+  color: var(--mute);
+}
+
+.fun-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+}
+
+.fun-snake {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+.fun-score {
+  display: flex;
+  justify-content: space-between;
+  font: 11.5px var(--mono);
+  color: var(--mute);
+}
+.fun-score b {
+  color: var(--ink);
+  font-weight: 500;
+}
+.fun-board {
+  position: relative;
+  align-self: center;
+  height: 100%;
+  max-height: 100%;
+  aspect-ratio: 1;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  touch-action: none;
+}
+.fun-board canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.fun-msg {
+  position: absolute;
+  inset: auto 0 12px;
+  margin: 0 auto;
+  width: max-content;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font: 11.5px var(--mono);
+}
+.fun-msg kbd {
+  font: inherit;
+  border: 1px solid color-mix(in srgb, var(--paper) 35%, transparent);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
+.fun-card {
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.fun-card b {
+  font: 800 20px "Bricolage Grotesque", var(--sans);
+  letter-spacing: -0.02em;
+}
+.fun-card p {
+  margin: 0;
+  color: var(--mute);
+}
+.fun-card button {
+  margin-top: 4px;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 500;
+}
+
+@media (max-width: 520px) {
+  .fun-win {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    height: min(460px, calc(100dvh - 90px));
+  }
+}
