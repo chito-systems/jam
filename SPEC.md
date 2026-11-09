@@ -1,8 +1,8 @@
-# Hack Harness — Agent Development Environment (ADE)
+# JAM — Agent Development Environment (ADE)
 
 **Problem (one sentence):** In an agent-era hackathon, a team's context fragments across people, agents, voice conversations and PRs within an hour, and the humans lose focus trying to hold it together.
 
-**Product (one sentence):** Hack Harness is an open-source ADE that gives a hackathon team one shared, searchable context brain (Elasticsearch), one safe merge path for humans and agents (Gitar + merge queue), and a focus-first interface for the human while agents work.
+**Product (one sentence):** JAM is an open-source ADE that gives a hackathon team one shared, searchable context brain (Elasticsearch), one safe merge path for humans and agents (Gitar + merge queue), and a focus-first interface for the human while agents work.
 
 **Built for:** this hackathon, today, by a team using it to build itself. Generalizes to any team building with agents.
 
@@ -28,11 +28,11 @@
 - Monaco editor pane for NOW.md / pitch / notes, saved via PR.
 
 ## Sponsor tracks
-| Track | Role in Hack Harness |
+| Track | Role in JAM |
 | --- | --- |
 | Elasticsearch | The brain. Core data layer. Hybrid search + RAG for agents. |
 | Sonar / Gitar | The merge path. Every PR reviewed; review instructions; auto-apply; the merge queue is built around Gitar's verdict. |
-| Radar | Hack Harness is deployed on the Radar cluster via Argo CD; the Agents pane reads workload health via Radar MCP; one AI investigation on a real issue in the README. |
+| Radar | JAM is deployed on the Radar cluster via Argo CD; the Agents pane reads workload health via Radar MCP; one AI investigation on a real issue in the README. |
 | Dash0 | Every agent run and every voice→index pipeline step is traced (OpenTelemetry + OpenLIT). Agents pane shows token cost per agent. SLO: transcript indexed within 10 s, p95. Chaos toggle on the indexing worker. |
 | Merge Forward | Voice-first input and a focus mode are accessibility features; say so. |
 

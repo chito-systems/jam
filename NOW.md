@@ -3,7 +3,7 @@
 Agents: read on start. Humans: update when something changes. Live status lives on the Board (Issue #2); this file is the pitch, the decisions, and the clock.
 
 ## Pitch (one sentence)
-Hack Harness is an open-source Agent Development Environment for hackathon teams: one shared context brain, one safe merge path for humans and agents, one focus-first interface.
+JAM is an open-source Agent Development Environment for hackathon teams: one shared context brain, one safe merge path for humans and agents, one focus-first interface.
 
 ## The narrow problem for v0
 Capture what the team says, make it searchable in under 10 seconds, give every agent the same context through one MCP tool.
