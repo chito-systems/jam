@@ -14,6 +14,7 @@ import { Mark, type MarkMode, ThemeCtx } from './Mark'
 import { orderFor, proposedOrders, setChaos, workTasks } from './orders'
 import { Intro } from './Intro'
 import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, usePhone, useTheme } from './parts'
+import { FunMode } from './FunMode'
 import { type Outgoing, Talk } from './Talk'
 import { type ShipRow, shipHeader, shipRows } from './ship'
 import { TabStrip, TermStack, useTermTabs } from './TermTabs'
@@ -296,6 +297,7 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
         </button>
         <FreezeClock />
         {live.stats?.chaos && <span className="chaos-tag" title={CHAOS_TEXT}>CHAOS</span>}
+        <FunMode />
         <Talk id={id} onOutgoing={track} />
         <button type="button" className="icon" aria-label="Sound" aria-pressed={sound} title={sound ? 'Sound on' : 'Sound off'} onClick={toggleSound}>
           <SoundIcon on={sound} />
