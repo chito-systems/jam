@@ -3,12 +3,16 @@ import {
   type Dispatcher,
   type FeedEvent,
   type IngestJob,
+  type ItemDoc,
   MemoryStore,
+  TaskDocSchema,
   type Transcriber,
   type Transcript,
 } from "@hh/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createInlineDispatcher } from "./dispatcher";
+import type { Librarian } from "./librarian";
+import type { Planner, PlannerInput } from "./planner";
 import { type PipelineDeps, runPipeline } from "./pipeline";
 
 const AT = "2026-11-09T19:00:00.000Z";
@@ -218,5 +222,132 @@ describe("inline dispatcher", () => {
     const finals = await Promise.all(dones);
     expect(finals.map((f) => f.state)).toEqual(["indexed", "indexed", "indexed"]);
     expect(peak).toBe(2);
+  });
+});
+
+describe("jam work orders", () => {
+  const todo = (over: Partial<ItemDoc> = {}): ItemDoc => ({
+    team_id: "t1",
+    id: "todo-1",
+    kind: "todo",
+    text: "Jake adds confirm and reject buttons to the decisions list.",
+    who: "cam",
+    at: AT,
+    tags: [],
+    raw_ids: ["c1:0"],
+    status: "open",
+    confidence: 0.9,
+    ...over,
+  });
+  const defaultDraft: Planner["draft"] = async () => ({ title: "Add buttons", paths: ["./apps/web/src/"], spec: "## Goal\nx" });
+
+  function setup(items: ItemDoc[], draft: Planner["draft"] = defaultDraft) {
+    const store = new MemoryStore();
+    const events: FeedEvent[] = [];
+    const drafts: PlannerInput[] = [];
+    const librarian: Librarian = { name: "fake", extract: async () => items };
+    const planner: Planner = {
+      name: "fake",
+      draft: async (input) => {
+        drafts.push(input);
+        return draft(input);
+      },
+    };
+    const d = createInlineDispatcher({ store, librarian, planner });
+    d.subscribe("t1", (e) => events.push(e));
+    return { store, d, events, drafts };
+  }
+  const itemEvents = (events: FeedEvent[], n: number) =>
+    vi.waitFor(() => expect(events.filter((e) => e.event === "item")).toHaveLength(n));
+  const tick = () => new Promise((r) => setTimeout(r, 20));
+
+  it("drafts exactly one proposed task for a confident new todo and publishes it", async () => {
+    const { store, d, events, drafts } = setup([todo(), todo({ id: "d1", kind: "decision", text: "Use Elastic." })]);
+    await store.indexItems([todo({ id: "d0", kind: "decision", verdict: "rejected", text: "Use Postgres." })]);
+    await d.dispatch(job({ text: "Jake, can you add confirm and reject buttons" }));
+    await vi.waitFor(() => expect(events.some((e) => e.event === "task")).toBe(true));
+    const tasks = await store.tasks({ team_id: "t1", limit: 10 });
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({
+      status: "proposed",
+      owner: "jam",
+      proposed_by: "jam",
+      title: "Add buttons",
+      paths: ["apps/web/src"],
+      spec: "## Goal\nx",
+      item_id: "todo-1",
+      raw_ids: ["c1:0"],
+      side: "frontend",
+      suggested_owner: "jake",
+      reason: "Jake was named in the request.",
+    });
+    expect(TaskDocSchema.parse(tasks[0])).toEqual(tasks[0]);
+    expect(drafts[0]?.quotes.map((q) => q.id)).toEqual(["c1:0"]);
+    expect(drafts[0]?.decisions.map((x) => x.id)).toEqual(["d1"]); // the rejected one is dropped
+  });
+
+  it("drafts nothing for a low-confidence todo, a decision, or a todo that already has a task", async () => {
+    const { store, d, events, drafts } = setup([
+      todo({ id: "low", confidence: 0.6 }),
+      todo({ id: "dec", kind: "decision" }),
+      todo({ id: "has" }),
+    ]);
+    await store.upsertTask({
+      team_id: "t1",
+      id: "x",
+      title: "t",
+      side: "backend",
+      owner: "jam",
+      paths: [],
+      status: "proposed",
+      item_id: "has",
+      created_at: AT,
+      updated_at: AT,
+    });
+    await d.dispatch(job());
+    await itemEvents(events, 3);
+    await tick();
+    expect(drafts).toEqual([]);
+    expect(events.some((e) => e.event === "task")).toBe(false);
+  });
+
+  it("skips status updates of existing todos, and chaos captures entirely", async () => {
+    const { store, d, events, drafts } = setup([todo({ id: "old", status: "done" })]);
+    await store.indexItems([todo({ id: "old" })]);
+    await d.dispatch(job());
+    await itemEvents(events, 1);
+    await d.dispatch(job({ capture_id: "c2", source_ref: "chaos" }));
+    await vi.waitFor(async () => expect((await d.status("c2"))?.state).toBe("indexed"));
+    await tick();
+    expect(drafts).toEqual([]);
+    expect(events.filter((e) => e.event === "item")).toHaveLength(1);
+  });
+
+  it("falls back to the todo text for an empty title, and skips a task that would not validate", async () => {
+    const empty = setup([todo()], async () => ({ title: "  ", paths: [], spec: "s" }));
+    await empty.d.dispatch(job());
+    await vi.waitFor(() => expect(empty.events.some((e) => e.event === "task")).toBe(true));
+    expect((await empty.store.tasks({ team_id: "t1", limit: 10 }))[0]?.title).toBe(todo().text);
+
+    const tooMany = Array.from({ length: 25 }, (_, i) => `apps/web/src/f${i}.tsx`);
+    const bad = setup([todo()], async () => ({ title: "t", paths: tooMany, spec: "s" }));
+    await bad.d.dispatch(job());
+    await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledTimes(1));
+    expect(errorSpy.mock.calls[0]?.[0]).toMatch(/invalid task; skipped/);
+    expect(await bad.store.tasks({ team_id: "t1", limit: 10 })).toEqual([]);
+    expect(bad.events.some((e) => e.event === "task")).toBe(false);
+  });
+
+  it("a planner failure leaves the capture and the items intact, logged once", async () => {
+    const { store, d, events } = setup([todo()], async () => {
+      throw new Error("model down");
+    });
+    await d.dispatch(job());
+    await itemEvents(events, 1);
+    await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledTimes(1));
+    expect(errorSpy.mock.calls[0]?.[0]).toBe("planner failed");
+    expect((await d.status("c1"))?.state).toBe("indexed");
+    expect(await store.items({ team_id: "t1", limit: 10 })).toHaveLength(1);
+    expect(await store.tasks({ team_id: "t1", limit: 10 })).toEqual([]);
   });
 });

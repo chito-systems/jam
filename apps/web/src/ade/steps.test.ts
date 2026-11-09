@@ -30,10 +30,19 @@ describe('setup guide status', () => {
   })
 
   it('does not count someone else, a denied or unknown mic, a human-only brain, or a bridge still checking', () => {
-    const s = stepStatus({ ...base, mic: 'denied', docs: [{ who: 'cam' }], stats: { by_who: { jake: 3 } }, bridge: 'checking' })
+    const s = stepStatus({ ...base, mic: 'denied', docs: [{ who: 'cam' }], stats: { by_who: { cam: 3 } }, bridge: 'checking' })
     expect(setupLine(s)).toBe('1 of 6 set up')
     expect(stepStatus({ ...base, mic: 'prompt' }).mic).toBe(false)
     expect(stepStatus({ ...base, stats: undefined }).agent).toBe(false)
+  })
+
+  it('ticks the agent step only for your own agent, not a teammate\'s', () => {
+    expect(stepStatus({ ...base, stats: { by_who: { 'agent:cam-agent': 5, 'agent:opus-1': 2 } } }).agent).toBe(false)
+    expect(stepStatus({ ...base, stats: { by_who: { 'agent:jake-agent': 1 } } }).agent).toBe(true)
+  })
+
+  it('counts your first entry from the whole-brain totals, even when it has scrolled out of the recent list', () => {
+    expect(stepStatus({ ...base, docs: [], stats: { by_who: { jake: 1 } } }).say).toBe(true)
   })
 
   it('counts distinct agents only', () => {
