@@ -76,11 +76,13 @@ export function Talk({ id, onOutgoing, toggle = false, onPress }: TalkProps) {
     hintTimer.current = window.setTimeout(() => setMsg((m) => (m === text ? '' : m)), 2500)
   }
   const fail = (text: string) => {
+    console.debug('talk: failed:', text)
     setMsg(text)
     playChime('error')
   }
 
   const start = (via: 'pointer' | 'key' | 'toggle') => {
+    console.debug('talk: start', via)
     if (pressing.current || cur.current) return
     const problem = micProblem({ secure: window.isSecureContext, media: Boolean(navigator.mediaDevices?.getUserMedia), recorder: typeof MediaRecorder !== 'undefined' })
     if (problem) return fail(problem)
@@ -101,6 +103,7 @@ export function Talk({ id, onOutgoing, toggle = false, onPress }: TalkProps) {
           if (e.data.size) r.parts.push(e.data)
         }
         rec.start()
+        console.debug('talk: recording', rec.mimeType || '(browser default)')
         cur.current = r
         setT0(r.t0)
         setNow(r.t0)
@@ -129,6 +132,7 @@ export function Talk({ id, onOutgoing, toggle = false, onPress }: TalkProps) {
     setT0(null)
     const ms = Date.now() - r.t0
     const keep = send && !tooShort(ms)
+    console.debug('talk: stop', { send, ms, keep, state: r.rec.state })
     if (!send) setSay('Cancelled. Nothing was sent.')
     if (send && !keep) hint(toggle ? 'Too short. Tap, talk, then tap again.' : 'Hold to talk')
     if (!keep) playChime('cancel')
@@ -137,12 +141,14 @@ export function Talk({ id, onOutgoing, toggle = false, onPress }: TalkProps) {
       release(r.stream)
       if (!keep) return
       const blob = new Blob(r.parts, { type: r.rec.mimeType || 'audio/webm' })
+      console.debug('talk: clip', { bytes: blob.size, parts: r.parts.length, type: blob.type })
       if (!blob.size) return fail('The mic gave no audio, so nothing was sent.')
       const key = r.at
       onOutgoing({ key })
       setSay('Sending the voice note.')
       uploadClip(id, blob, r.at).then(
         (res) => {
+          console.debug('talk: sent', res.capture_id)
           onOutgoing({ key, capture_id: res.capture_id })
           setSay('Voice note sent.')
           playChime('sent')

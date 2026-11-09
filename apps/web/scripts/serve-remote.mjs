@@ -20,6 +20,7 @@ const LOG = process.env.LOG === '1'
 const REPORTER = `(function(){function s(m){try{navigator.sendBeacon('/__client-log',String(m))}catch(e){}}
 window.addEventListener('error',function(e){s('error: '+e.message+' @ '+e.filename+':'+e.lineno+':'+e.colno+' '+(e.error&&e.error.stack||''))});
 window.addEventListener('unhandledrejection',function(e){s('rejection: '+(e.reason&&(e.reason.stack||e.reason.message)||e.reason))});
+var cd=console.debug;console.debug=function(){s('debug: '+[].map.call(arguments,function(a){try{return typeof a==='object'?JSON.stringify(a):String(a)}catch(e){return String(a)}}).join(' '));cd.apply(console,arguments)};
 var ce=console.error;console.error=function(){s('console.error: '+[].map.call(arguments,function(a){return a&&a.stack||String(a)}).join(' '));ce.apply(console,arguments)};
 setTimeout(function(){var r=document.getElementById('root');s('after 6s: root children='+(r&&r.children.length)+' html='+(r&&r.innerHTML.slice(0,300)))},6000)})()`
 
