@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   cleanPaths,
   createPlannerFromEnv,
+  draftTitle,
   type ModelWorkOrder,
   OpenAIPlanner,
   PR_RULE,
@@ -96,6 +97,12 @@ describe("OpenAIPlanner", () => {
     expect(draft.paths).toEqual([]);
     expect(draft.spec).toContain(`> "${chunk.text}" — cam`);
     expect(draft.spec).not.toContain("## Constraints");
+  });
+
+  it("falls back to the todo text when the model's title is only punctuation", async () => {
+    const draft = await planner(fakeFetch(200, JSON.stringify(model({ title: " ... " })))).draft(input);
+    expect(draft.title).toBe("Jake adds confirm and reject buttons to the decisions list in the UI");
+    expect(draftTitle("", "x".repeat(200))).toHaveLength(80);
   });
 
   it("throws a clear error on malformed output and on HTTP failure", async () => {

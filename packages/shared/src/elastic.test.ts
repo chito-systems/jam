@@ -47,7 +47,7 @@ const task: TaskDoc = {
 const opts = { rawIndex: "raw_x", itemsIndex: "items_x", tasksIndex: "tasks_x" };
 const shards = { total: 1, successful: 1, failed: 0 };
 
-const searchRes = (hits: Array<{ _index: string; _score?: number; _source: unknown }>) =>
+const searchRes = (hits: Array<{ _index: string; _id?: string; _score?: number; _source: unknown }>) =>
   ({
     took: 1,
     timed_out: false,
@@ -288,6 +288,22 @@ describe("tasks and counts", () => {
       },
       sort: [{ created_at: "desc" }],
     });
+  });
+
+  it("skips an invalid stored task with one warning instead of failing the whole list", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const client = fakeClient();
+    client.search.mockResolvedValueOnce(
+      searchRes([
+        { _index: "tasks_x", _id: "bad1", _source: { ...task, id: "bad1", title: "" } },
+        { _index: "tasks_x", _source: task },
+        { _index: "tasks_x", _id: "bad2", _source: { nope: true } },
+      ]),
+    );
+    expect(await new ElasticStore(client, opts).tasks({ team_id: "t1", limit: 7 })).toEqual([task]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[1]).toMatchObject({ ids: ["bad1", "bad2"] });
+    warn.mockRestore();
   });
 
   it("maps aggregations and the items count into StoreCounts", async () => {

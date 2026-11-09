@@ -62,7 +62,9 @@ Rules:
 - Use only facts from the todo, the quotes and the decisions. Do not invent requirements, endpoints, field names, owners or deadlines. If the team did not say how, describe the outcome, not an implementation.
 - Who should do the work is decided elsewhere: never mention an assignee in the title, goal or criteria.
 - If the todo is not software work ("get lunch", "talk to the Radar table"), still write the goal and criteria plainly, set software to false and return no paths.
-- Plain words. No marketing language.`;
+- "The decisions list" is a view in the UI that shows every extracted decision, including rejected ones. "The decision log" is the exported record (/api/decisions.md) of decisions that were not rejected. They are different things: never use one name for the other.
+- Plain words. No marketing language.
+- Before answering, re-read each acceptance criterion against the constraints; delete any criterion that contradicts one.`;
 
 const RESPONSE_FORMAT = {
   type: "json_schema",
@@ -125,8 +127,7 @@ export function parseModelOutput(content: string): ModelWorkOrder {
   const o = body as Partial<ModelWorkOrder> | null;
   const ok =
     o &&
-    typeof o.title === "string" &&
-    o.title.trim() !== "" &&
+    typeof o.title === "string" && // may be empty: draftTitle falls back to the todo text
     typeof o.goal === "string" &&
     Array.isArray(o.quotes) &&
     o.quotes.every((q) => q && typeof q.raw_id === "string" && typeof q.excerpt === "string") &&
@@ -167,6 +168,12 @@ export function cleanPaths(paths: string[]): string[] {
     if (!out.includes(p)) out.push(p);
   }
   return out.slice(0, MAX_PATHS);
+}
+
+/** The model's title without trailing punctuation; if nothing is left ("..."), the todo's own text. Never empty for a non-empty todo. */
+export function draftTitle(modelTitle: string, todoText: string): string {
+  const strip = (s: string) => squash(s).replace(/^[\p{P}\s]+|[\p{P}\s]+$/gu, "");
+  return clip(strip(modelTitle) || strip(todoText) || squash(todoText), MAX_TITLE);
 }
 
 /** Renders the work order. Quotes are checked against the chunks: a paraphrase falls back to the chunk itself. */
@@ -211,7 +218,7 @@ export function renderWorkOrder(m: ModelWorkOrder, input: PlannerInput): WorkOrd
   ].join("\n");
 
   return {
-    title: clip(m.title.replace(/[.\s]+$/, ""), MAX_TITLE),
+    title: draftTitle(m.title, input.todo.text),
     paths: m.software ? cleanPaths(m.paths) : [],
     spec,
   };

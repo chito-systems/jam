@@ -11,6 +11,7 @@ import {
   type RawDoc,
   type RosterEntry,
   type TaskDoc,
+  TaskDocSchema,
 } from "@hh/shared";
 import type { Librarian } from "./librarian";
 import type { Planner } from "./planner";
@@ -105,10 +106,10 @@ export function createInlineDispatcher(deps: DispatcherDeps): Dispatcher {
     const paths = [...new Set(draft.paths.map(normalizePath).filter(Boolean))];
     const who = assignWork({ text: todo.text, speaker: todo.who, paths, roster });
     const at = new Date().toISOString();
-    const task: TaskDoc = {
+    const candidate: TaskDoc = {
       team_id: todo.team_id,
       id: crypto.randomUUID(),
-      title: draft.title.slice(0, 200),
+      title: (draft.title.trim() || todo.text.trim().slice(0, 80)).slice(0, 200),
       side: who.side,
       owner: "jam",
       paths,
@@ -122,6 +123,17 @@ export function createInlineDispatcher(deps: DispatcherDeps): Dispatcher {
       created_at: at,
       updated_at: at,
     };
+    // Never store a task the store can't read back: one bad doc would break tasks() for the whole team.
+    const valid = TaskDocSchema.safeParse(candidate);
+    if (!valid.success) {
+      console.error("planner drafted an invalid task; skipped", {
+        team_id: todo.team_id,
+        item_id: todo.id,
+        error: valid.error.message.slice(0, 300),
+      });
+      return;
+    }
+    const task = valid.data;
     await deps.store.upsertTask(task);
     m.workOrders.add(1, { side: task.side });
     emit(todo.team_id, { event: "task", data: task });

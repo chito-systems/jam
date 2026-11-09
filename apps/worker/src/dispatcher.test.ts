@@ -323,6 +323,21 @@ describe("jam work orders", () => {
     expect(events.filter((e) => e.event === "item")).toHaveLength(1);
   });
 
+  it("falls back to the todo text for an empty title, and skips a task that would not validate", async () => {
+    const empty = setup([todo()], async () => ({ title: "  ", paths: [], spec: "s" }));
+    await empty.d.dispatch(job());
+    await vi.waitFor(() => expect(empty.events.some((e) => e.event === "task")).toBe(true));
+    expect((await empty.store.tasks({ team_id: "t1", limit: 10 }))[0]?.title).toBe(todo().text);
+
+    const tooMany = Array.from({ length: 25 }, (_, i) => `apps/web/src/f${i}.tsx`);
+    const bad = setup([todo()], async () => ({ title: "t", paths: tooMany, spec: "s" }));
+    await bad.d.dispatch(job());
+    await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledTimes(1));
+    expect(errorSpy.mock.calls[0]?.[0]).toMatch(/invalid task; skipped/);
+    expect(await bad.store.tasks({ team_id: "t1", limit: 10 })).toEqual([]);
+    expect(bad.events.some((e) => e.event === "task")).toBe(false);
+  });
+
   it("a planner failure leaves the capture and the items intact, logged once", async () => {
     const { store, d, events } = setup([todo()], async () => {
       throw new Error("model down");

@@ -218,7 +218,18 @@ export class ElasticStore implements ContextStore {
       query: { bool: { filter } },
       sort: [{ created_at: "desc" }],
     });
-    return res.hits.hits.map((h) => TaskDocSchema.parse(h._source));
+    // One bad stored document must never take the board down: skip it, warn once per call.
+    const out: TaskDoc[] = [];
+    const bad: string[] = [];
+    for (const h of res.hits.hits) {
+      const parsed = TaskDocSchema.safeParse(h._source);
+      if (parsed.success) out.push(parsed.data);
+      else bad.push(h._id ?? "?");
+    }
+    if (bad.length > 0) {
+      console.warn("tasks: skipped invalid stored task docs", { index: this.opts.tasksIndex, ids: bad });
+    }
+    return out;
   }
 
   async counts(team_id: string): Promise<StoreCounts> {
