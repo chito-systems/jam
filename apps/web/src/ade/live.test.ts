@@ -1,6 +1,6 @@
 import type { RawDoc, TaskDoc } from '@hh/shared'
-import { describe, expect, it } from 'vitest'
-import { agentName, ago, clock, formatMs, isAgent, mergeNew, sortTasks, threadFor, upsert } from './live'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { agentName, ago, clock, formatMs, isAgent, loadIdentity, mergeNew, saveIdentity, sortTasks, threadFor, upsert } from './live'
 
 const task = (over: Partial<TaskDoc>): TaskDoc => ({
   team_id: 't1',
@@ -106,5 +106,35 @@ describe('mergeNew', () => {
     const out = mergeNew(live, loaded, (d) => d.at)
     expect(out.map((d) => d.id)).toEqual(['live', 'old'])
     expect(out[0]?.text).toBe('from the stream')
+  })
+})
+
+describe('identity', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('saves trimmed, lowercased values under the keys /c uses and reads them back', () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+    })
+    expect(saveIdentity(' Bog ', ' Jake')).toEqual({ team: 'bog', who: 'jake', persisted: true })
+    expect(store.get('hh.team')).toBe('bog')
+    expect(loadIdentity()).toEqual({ team: 'bog', who: 'jake', persisted: true })
+  })
+
+  it('says so, and logs once, when the browser refuses storage', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('QuotaExceededError')
+      },
+    })
+    expect(saveIdentity('bog', 'jake')).toEqual({ team: 'bog', who: 'jake', persisted: false })
+    expect(warn).toHaveBeenCalledTimes(1)
   })
 })
