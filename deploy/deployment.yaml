@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  labels:
+    app: app
+spec:
+  # One replica on purpose: capture status and the SSE feed (/api/events) live
+  # in the API process until the worker is split out, so two replicas would
+  # give inconsistent reads. Raise this only after that split.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app
+  template:
+    metadata:
+      labels:
+        app: app
+    spec:
+      containers:
+        - name: app
+          image: app
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: NODE_ENV
+              value: production
+            # Explicit, so a missing ELASTIC_URL fails loudly instead of
+            # falling back to the in-memory dev store.
+            - name: STORE
+              value: elastic
+            - name: CHAOS_MODE
+              value: "false"
+            - name: SEED
+              value: "false"
+            - name: OTEL_SERVICE_NAME
+              value: hack-harness-api
+            - name: TEAM_NAME
+              value: "__TEAM__"
+          # Created by hand in the cluster, never committed (deploy/RADAR.md,
+          # "Creating the app Secret"). Carries ELASTIC_URL, ELASTIC_API_KEY,
+          # OPENAI_API_KEY, OTEL_EXPORTER_OTLP_ENDPOINT,
+          # OTEL_EXPORTER_OTLP_HEADERS and GITHUB_WEBHOOK_SECRET.
+          envFrom:
+            - secretRef:
+                name: hack-harness-env
+                optional: false
+          resources:
+            requests:
+              cpu: 250m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
+          # tsx compiles TypeScript on first load; give it up to 60 s before
+          # liveness starts counting.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 3
+            failureThreshold: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            capabilities:
+              drop: ["ALL"]
