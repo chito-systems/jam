@@ -12,6 +12,7 @@ import { Mark } from './Mark'
 import { justIn, needsYou, type Sent, sentRows } from './needs'
 import { acceptOrder, dismissOrder, orderFor } from './orders'
 import { FreezeClock } from './parts'
+import { uploadClip } from './clip'
 import { Talk } from './Talk'
 
 const SENT_LABEL = { sending: 'Sending…', queued: 'Sent. Waiting for the brain…', transcribing: 'Transcribing…', indexing: 'Filing it in the brain…' } as const
@@ -23,6 +24,7 @@ export function Companion({ id, live, onSignOut }: { id: Identity; live: Live; o
   const [handled, setHandled] = useState<Set<string>>(() => new Set())
   const [toast, setToast] = useState('')
   const [writing, setWriting] = useState(false)
+  const [clip, setClip] = useState<{ blob: Blob; at: string } | null>(null)
   // What this phone sent, so a clip is visible from the tap until the brain has the words.
   const [sent, setSent] = useState<Sent[]>([])
   const track = useCallback((o: Sent) => setSent((list) => [o, ...list.filter((x) => x.key !== o.key)].slice(0, 3)), [])
@@ -131,10 +133,11 @@ export function Companion({ id, live, onSignOut }: { id: Identity; live: Live; o
           <PenIcon />
         </button>
         <div className="c-talk">
-          <Talk id={id} onOutgoing={track} toggle />
+          <Talk id={id} onOutgoing={track} toggle onClip={(blob, at) => setClip({ blob, at })} />
         </div>
       </footer>
 
+      {clip && <ReviewSheet id={id} clip={clip} onSent={track} onClose={() => setClip(null)} />}
       {writing && <NoteSheet id={id} onSent={track} onClose={() => setWriting(false)} />}
       {guide && <Guide id={id} live={live} onSignOut={onSignOut} onClose={() => setGuide(false)} />}
     </div>
@@ -215,6 +218,91 @@ function AskCard({ item, id, onDone }: { item: ItemDoc; id: Identity; onDone: ()
         <button type="button" className="btn" disabled={busy} onClick={() => void answer('rejected')}>No</button>
       </div>
     </article>
+  )
+}
+
+type Transcriber = { postMessage: (m: unknown) => Promise<unknown> }
+/** The iPhone app transcribes on the phone (Apple speech); a browser has no such handler. */
+const transcriber = () => (window as Window & { webkit?: { messageHandlers?: { jamTranscribe?: Transcriber } } }).webkit?.messageHandlers?.jamTranscribe
+
+const base64 = (blob: Blob) =>
+  new Promise<string>((ok, no) => {
+    const r = new FileReader()
+    r.onload = () => ok(String(r.result).split(',')[1] ?? '')
+    r.onerror = () => no(r.error)
+    r.readAsDataURL(blob)
+  })
+
+/** After a recording: read what you said, fix it if you like, then send it or throw it away. */
+function ReviewSheet({ id, clip, onSent, onClose }: { id: Identity; clip: { blob: Blob; at: string }; onSent: (s: Sent) => void; onClose: () => void }) {
+  const t = transcriber()
+  const [text, setText] = useState('')
+  const [state, setState] = useState<'reading' | 'ready' | 'sending' | 'error'>(t ? 'reading' : 'ready')
+  const [error, setError] = useState('')
+  const audio = useMemo(() => URL.createObjectURL(clip.blob), [clip.blob])
+  useEffect(() => () => URL.revokeObjectURL(audio), [audio])
+
+  useEffect(() => {
+    if (!t) return
+    let live = true
+    base64(clip.blob)
+      .then((audio) => t.postMessage({ audio, type: clip.blob.type }))
+      .then((said) => {
+        if (!live) return
+        setText(String(said ?? '').trim())
+        setState('ready')
+      })
+      .catch((e: unknown) => {
+        if (!live) return
+        console.error('transcribing on the phone failed', e)
+        setError(`Couldn't read it back (${e instanceof Error ? e.message : String(e)}). You can still send the recording.`)
+        setState('ready')
+      })
+    return () => {
+      live = false
+    }
+  }, [t, clip.blob])
+
+  // What you read is what goes in: the edited text as a note. Without a transcript, the recording itself.
+  const send = async () => {
+    setState('sending')
+    try {
+      const said = text.trim()
+      const res = said ? await addNote(id, said) : await uploadClip(id, clip.blob, clip.at)
+      onSent({ key: res.capture_id, capture_id: res.capture_id })
+      playChime('sent')
+      onClose()
+    } catch (e) {
+      console.error('sending from the phone failed', e)
+      setError(e instanceof Error ? e.message : 'Not sent.')
+      setState('error')
+    }
+  }
+
+  return (
+    <div className="c-sheet-wrap">
+      <div className="c-sheet c-review" role="dialog" aria-modal="true" aria-label="Read it back">
+        <p className="c-kind">{state === 'reading' ? 'Reading it back…' : t ? 'What you said' : 'Your recording'}</p>
+        {t && (
+          <textarea
+            rows={5}
+            value={text}
+            disabled={state === 'reading'}
+            placeholder={state === 'reading' ? '' : 'Nothing heard. Type what you meant, or send the recording.'}
+            onChange={(e) => setText(e.target.value)}
+          />
+        )}
+        {/* biome-ignore lint/a11y/useMediaCaption: your own voice note, read back above */}
+        <audio controls src={audio} className="c-audio" />
+        {error && <p className="c-msg bad" role="alert">{error}</p>}
+        <div className="c-acts">
+          <button type="button" className="btn" disabled={state === 'sending'} onClick={() => { playChime('cancel'); onClose() }}>Discard</button>
+          <button type="button" className="btn primary" disabled={state === 'reading' || state === 'sending'} onClick={() => void send()}>
+            {state === 'sending' ? 'Sending…' : 'Send'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

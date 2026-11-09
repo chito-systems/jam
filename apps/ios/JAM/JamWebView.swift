@@ -1,3 +1,4 @@
+import Speech
 import SwiftUI
 import WebKit
 
@@ -17,6 +18,7 @@ struct JamWebView: UIViewRepresentable {
         config.websiteDataStore = .default()  // keeps team code and name between launches
         let web = WKWebView(frame: .zero, configuration: config)
         config.userContentController.add(context.coordinator, name: "jam")
+        config.userContentController.addScriptMessageHandler(context.coordinator, contentWorld: .page, name: "jamTranscribe")
         web.navigationDelegate = context.coordinator
         web.uiDelegate = context.coordinator
         web.isOpaque = false
@@ -41,7 +43,7 @@ struct JamWebView: UIViewRepresentable {
         if web.url?.host != url.host { web.load(URLRequest(url: url)) }
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
         let parent: JamWebView
         weak var web: WKWebView?
         init(_ parent: JamWebView) { self.parent = parent }
@@ -57,6 +59,48 @@ struct JamWebView: UIViewRepresentable {
             default: break
             }
         }
+
+        /// The page posts {audio: base64, type} after a recording; the reply is what Apple's speech
+        /// recognizer heard, so the person can read it before anything goes to the brain.
+        func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage,
+                                   replyHandler: @escaping (Any?, String?) -> Void) {
+            guard let body = message.body as? [String: Any], let b64 = body["audio"] as? String,
+                  let data = Data(base64Encoded: b64) else { return replyHandler(nil, "no audio") }
+            let ext = ((body["type"] as? String) ?? "").contains("webm") ? "webm" : "m4a"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("jam-\(UUID().uuidString).\(ext)")
+            do { try data.write(to: url) } catch { return replyHandler(nil, "could not save the clip") }
+            SFSpeechRecognizer.requestAuthorization { status in
+                DispatchQueue.main.async {
+                    guard status == .authorized else {
+                        try? FileManager.default.removeItem(at: url)
+                        return replyHandler(nil, "speech recognition is off for JAM in Settings")
+                    }
+                    guard let rec = SFSpeechRecognizer(locale: Locale(identifier: "en-US")), rec.isAvailable else {
+                        try? FileManager.default.removeItem(at: url)
+                        return replyHandler(nil, "speech recognition isn't available right now")
+                    }
+                    let req = SFSpeechURLRecognitionRequest(url: url)
+                    req.shouldReportPartialResults = false
+                    req.addsPunctuation = true
+                    var answered = false
+                    self.task = rec.recognitionTask(with: req) { result, error in
+                        if answered { return }
+                        if let result, result.isFinal {
+                            answered = true
+                            try? FileManager.default.removeItem(at: url)
+                            replyHandler(result.bestTranscription.formattedString, nil)
+                        } else if let error {
+                            answered = true
+                            try? FileManager.default.removeItem(at: url)
+                            // No speech is an empty transcript, not a failure.
+                            let code = (error as NSError).code
+                            if code == 1110 || code == 203 { replyHandler("", nil) } else { replyHandler(nil, error.localizedDescription) }
+                        }
+                    }
+                }
+            }
+        }
+        private var task: SFSpeechRecognitionTask?
 
         @objc func reload(_ sender: UIRefreshControl) {
             web?.reload()
