@@ -1,0 +1,16 @@
+{
+  "name": "jam-desktop",
+  "productName": "JAM",
+  "version": "0.1.0",
+  "private": true,
+  "description": "JAM as a native desktop app: a thin Electron shell around the hosted web app.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "package": "electron-packager . JAM --platform=darwin --arch=arm64 --out=out --overwrite --app-bundle-id=dev.jam.desktop --icon=icon.icns --extend-info=Info.extra.plist --ignore=^/out --ignore=^/README.md"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^45.2.3"
+  }
+}

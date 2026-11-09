@@ -1,26 +1,28 @@
-import type { AgentDoc, CaptureStatus, ChaosState, ItemDoc, ItemVerdict, RawDoc, SearchHit, TaskDoc } from '@hh/shared'
-import { type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { AgentDoc, CaptureStatus, ChaosState, ItemDoc, ItemVerdict, OwnershipMapResponse, RawDoc, SearchHit, TaskDoc } from '@hh/shared'
+import { type CSSProperties, createContext, type FormEvent, type ReactNode, type PointerEvent as ReactPointerEvent, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import '@fontsource-variable/geist'
 import '@fontsource-variable/geist-mono'
 import '@fontsource/bricolage-grotesque/800.css'
 import './ade.css'
-import type { RunState } from './data'
-import { armAudio, playChime, setSound, soundOn } from './chime'
-import { addNote, agentName, ago, clock, decisionLogUrl, formatMs, type Identity, isAgent, itemNewer, type Live, loadIdentity, newlyDone, pct, pendingCaptures, saveIdentity, searchBrain, setVerdict, threadFor, useLive } from './live'
-import { Mark, type MarkMode, ThemeCtx } from './Mark'
 import { agentMode, foldGone, groupAgents, ownerLabel, shortName } from './agents'
-import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, useTheme } from './parts'
+import { armAudio, playChime, setSound, soundOn } from './chime'
+import type { RunState } from './data'
 import { Guide, guideSeen, HelpIcon } from './Guide'
-import { type Outgoing, Talk } from './Talk'
-import { clampPanel, loadPanelHeight, savePanelHeight } from './term'
-import { Terminal } from './Terminal'
+import { addNote, agentName, ago, captainsOf, clock, decisionLogUrl, formatMs, type Identity, isAgent, itemNewer, type Live, loadIdentity, loadOwnership, loadRecent, type Member, member, memberLine, mergeSaid, newlyDone, pct, pendingCaptures, roster, sameWho, saveIdentity, searchBrain, setVerdict, threadFor, useLive } from './live'
+import { Mark, type MarkMode, ThemeCtx } from './Mark'
 import { orderFor, proposedOrders, setChaos, workTasks } from './orders'
+import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, useTheme } from './parts'
+import { type Outgoing, Talk } from './Talk'
+import { Terminal } from './Terminal'
+import { clampPanel, loadPanelHeight, savePanelHeight } from './term'
 import { OrderStrip, WorkOrder } from './WorkOrder'
 
 // The ADE on real data. The API has tasks, brain entries, captures and stats; it has no
 // agent transcripts yet, so a "session" here is a task claim and what the brain holds about it.
 
 const FEED = 'feed'
+/** activeId for a person from the people list: `person:<who>`. */
+const PERSON = 'person:'
 const TASK_STATE: Record<TaskDoc['status'], RunState> = { proposed: 'needs_input', claimed: 'running', done: 'done', released: 'cancelled' }
 const TASK_LABEL: Record<TaskDoc['status'], string> = { proposed: 'Proposed', claimed: 'Working', done: 'Done', released: 'Released' }
 const TASK_MARK: Record<TaskDoc['status'], MarkMode> = { proposed: 'waiting', claimed: 'working', done: 'still', released: 'idle' }
@@ -212,6 +214,23 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
   ]
 
   const crew = useMemo(() => groupAgents(live.stats?.by_who ?? {}, live.agents), [live.stats?.by_who, live.agents])
+  const [own, setOwn] = useState<{ map?: OwnershipMapResponse; error?: string }>({})
+  useEffect(() => {
+    let dead = false
+    setOwn({})
+    loadOwnership(id.team)
+      .then((map) => !dead && setOwn({ map }))
+      .catch((e: unknown) => {
+        console.error('loading side ownership failed', e)
+        if (!dead) setOwn({ error: e instanceof Error ? e.message : 'The API did not answer.' })
+      })
+    return () => {
+      dead = true
+    }
+  }, [id.team])
+  const captains = useMemo(() => captainsOf(own.map), [own.map])
+  const members = useMemo(() => roster(live.stats?.by_who ?? {}, live.tasks, live.docs, captains, live.agents), [live.stats, live.tasks, live.docs, captains, live.agents])
+  const person = activeId.startsWith(PERSON) ? members.find((m) => !isAgent(m.who) && sameWho(m.who, activeId.slice(PERSON.length))) : undefined
   const agent = known.get(activeId)
   const shown = agent ? agent.claims : active ? [active] : open
   const fileCount = shown.reduce((n, t) => n + t.paths.length, 0)
@@ -299,7 +318,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
         {live.status === 'ready' && !tasks.length && !orders.length && (
           <p className="pane-empty">No task is claimed yet. An agent claims one with the task_claim tool, and it appears here.</p>
         )}
-        <Crew crew={crew} agents={live.agents} activeId={activeId} now={now} onSelect={select} />
+        <Crew crew={crew} members={members} agents={live.agents} activeId={activeId} now={now} onSelect={select} />
         <span className="grow" />
         <div className="left-foot"><kbd>j</kbd> <kbd>k</kbd> move between tasks</div>
       </nav>
@@ -307,7 +326,15 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
 
       <main className="center">
         <div className="path">
-          {agent ? (
+          {person ? (
+            <>
+              <span className="t-title">{person.who}</span>
+              <span>side <b>{person.side ?? 'none yet'}</b></span>
+              <span>working <b>{person.working.length}</b></span>
+              <span>assigned <b>{person.assigned.length}</b></span>
+              <span>agents <b>{person.agents.length}</b></span>
+            </>
+          ) : agent ? (
             <>
               <span className={`a-dot a-${agent.state}`} role="img" aria-label={AGENT_STATE[agent.state]} />
               <span className="t-title">{shortName(agent)}</span>
@@ -340,15 +367,17 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
             </>
           )}
         </div>
-        {!active && !agent && <OrderStrip orders={orders} now={now} onOpen={select} />}
-        {agent ? (
+        {!active && !agent && !person && <OrderStrip orders={orders} now={now} onOpen={select} />}
+        {person ? (
+          <PersonView m={person} own={own} id={id} now={now} onSelect={select} owner={owner} />
+        ) : agent ? (
           <AgentCard agent={agent} now={now} onSelect={select} />
         ) : proposed ? (
           <WorkOrder task={proposed} id={id} onPut={live.putTask} onDismissed={() => select(FEED)} />
         ) : (
           <Thread live={live} task={active} id={id} outgoing={outgoing} now={now} onSignOut={onSignOut} />
         )}
-        {!proposed && !agent && <NoteBox id={id} />}
+        {!proposed && !agent && !person && <NoteBox id={id} />}
         <BottomPanel live={live} now={now} onSelect={select} />
       </main>
       <div className="divider d-right" onPointerDown={drag('right')} />
@@ -394,9 +423,9 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
 
 // ---------- people and agents: who is who ----------
 
-type CrewProps = { crew: ReturnType<typeof groupAgents>; agents: AgentDoc[]; activeId: string; now: number; onSelect: (id: string) => void }
+type CrewProps = { crew: ReturnType<typeof groupAgents>; members: Member[]; agents: AgentDoc[]; activeId: string; now: number; onSelect: (id: string) => void }
 
-function Crew({ crew, agents, activeId, now, onSelect }: CrewProps) {
+function Crew({ crew, members, agents, activeId, now, onSelect }: CrewProps) {
   const awake = agents.filter((a) => a.state === 'active').length
   return (
     <>
@@ -407,11 +436,7 @@ function Crew({ crew, agents, activeId, now, onSelect }: CrewProps) {
       <div className="crew">
         {crew.people.map((p) => (
           <div key={p.human}>
-            <div className="hu">
-              <span className="av">{p.human.slice(0, 1).toUpperCase()}</span>
-              {p.human}
-              {p.count !== undefined && <span className="s">{p.count} in brain</span>}
-            </div>
+            <PersonRow who={p.human} line={memberLine(members.find((x) => !isAgent(x.who) && sameWho(x.who, p.human)) ?? member(p.human, [], []))} active={activeId.startsWith(PERSON) && sameWho(activeId.slice(PERSON.length), p.human)} onSelect={onSelect} />
             <AgentRows agents={p.agents} activeId={activeId} now={now} onSelect={onSelect} />
           </div>
         ))}
@@ -431,6 +456,17 @@ function Crew({ crew, agents, activeId, now, onSelect }: CrewProps) {
         {!agents.length && <p className="pane-empty">No agents connected. Start one with <code className="cmd-line">{NO_AGENTS_CMD}</code></p>}
       </div>
     </>
+  )
+}
+
+/** A person in the rail: opens what they hold, what jam assigned them and what they're in charge of. */
+function PersonRow({ who, line, active, onSelect }: { who: string; line: string; active: boolean; onSelect: (id: string) => void }) {
+  return (
+    <button type="button" className="hu hu-person" aria-current={active} title={`What ${who} is doing`} onClick={() => onSelect(PERSON + who)}>
+      <span className="av">{who.slice(0, 1).toUpperCase()}</span>
+      <span className="hu-name">{who}</span>
+      <span className="s">{line}</span>
+    </button>
   )
 }
 
@@ -591,6 +627,195 @@ function ChaosSwitch({ id, on, ready, ask, setAsk, onState }: ChaosProps) {
         </div>
       ) : null}
     </>
+  )
+}
+
+// ---------- centre: one person ----------
+
+function Who({ who, size, busy }: { who: string; size: number; busy?: boolean }) {
+  if (isAgent(who)) return <Mark agent={who} size={size} mode={busy ? 'working' : 'still'} />
+  return (
+    <span className={busy ? 'av busy' : 'av'} style={{ width: size, height: size }}>
+      {agentName(who).slice(0, 1)}
+    </span>
+  )
+}
+
+function TaskRow({ t, now, meta, onSelect }: { t: TaskDoc; now: number; meta: string; onSelect: (id: string) => void }) {
+  return (
+    <li>
+      <button type="button" className="session" onClick={() => onSelect(t.id)}>
+        <Mark agent={t.owner} size={28} mode={TASK_MARK[t.status]} />
+        <span className="s-title">{t.title}</span>
+        <span className="s-time">{ago(t.updated_at, now)}</span>
+        <span className="s-meta">{meta}</span>
+      </button>
+    </li>
+  )
+}
+
+/** Their own recent entries from the API, merged with what the stream adds while the page is open. */
+function useSaid(team: string, m: Member) {
+  const [loaded, setLoaded] = useState<{ who: string; docs: RawDoc[]; error?: string }>({ who: '', docs: [] })
+  useEffect(() => {
+    let dead = false
+    loadRecent(team, m.who)
+      .then((r) => !dead && setLoaded({ who: m.who, docs: r.docs }))
+      .catch((e: unknown) => {
+        console.error(`loading recent entries for ${m.who} failed`, e)
+        if (!dead) setLoaded({ who: m.who, docs: [], error: e instanceof Error ? e.message : 'The API did not answer.' })
+      })
+    return () => {
+      dead = true
+    }
+  }, [team, m.who])
+  const said = mergeSaid(m.said, loaded.who === m.who ? loaded.docs : [])
+  return { said, loading: loaded.who !== m.who, error: loaded.who === m.who ? loaded.error : undefined }
+}
+
+const paths = (t: TaskDoc) => `${t.paths.length} ${t.paths.length === 1 ? 'path' : 'paths'}`
+
+function PersonView({ m, own, id, now, onSelect, owner }: { m: Member; own: { map?: OwnershipMapResponse; error?: string }; id: Identity; now: number; onSelect: (id: string) => void; owner: (who: string) => string }) {
+  const name = agentName(m.who)
+  const me = sameWho(m.who, id.who)
+  const { said, loading: saidLoading, error: saidError } = useSaid(id.team, m)
+  const sideOwn = own.map?.sides.find((s) => s.side === m.side)
+  return (
+    <div className="transcript">
+      <div className="col person">
+        <header className="p-head">
+          <Who who={m.who} size={40} busy={m.working.length > 0} />
+          <div>
+            <h2>{name}</h2>
+            <p className="dim">
+              {m.captain ? `${m.captain} captain` : m.side ? `${m.side} side` : 'no side yet'} · {m.agents.length} {m.agents.length === 1 ? 'agent' : 'agents'} · {m.inBrain} in brain
+            </p>
+          </div>
+        </header>
+
+        <section>
+          <div className="sec">
+            <span>IN CHARGE OF</span>
+            <span>{m.captain ? `captain · ${m.captain}` : m.side ? `${m.side} side` : ''}</span>
+          </div>
+          {m.side ? (
+            <div className="p-role">
+              <p>
+                {m.captain
+                  ? `${name} captains the ${m.side} side, which owns these paths.`
+                  : `${name} works on the ${m.side} side${sideOwn?.captain ? `, captained by ${agentName(sideOwn.captain)}` : ''}. It owns these paths.`}{' '}
+                A claim from {name} outside them is refused.
+              </p>
+              {sideOwn && (
+                <div className="p-paths">
+                  {sideOwn.paths.map((p) => (
+                    <code key={p}>{p}</code>
+                  ))}
+                </div>
+              )}
+              {!own.map && !own.error && <p role="status">Loading which paths that side owns…</p>}
+              {m.holding.length > 0 && (
+                <>
+                  <p>Holding now, so nobody else can claim them:</p>
+                  <div className="p-paths held">
+                    {m.holding.map((p) => (
+                      <code key={p}>{p}</code>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <p className="pane-empty">No side yet. It shows once {name} claims a task or a capture names a side.</p>
+          )}
+          {own.error && <p className="pane-empty bad" role="alert">Side ownership did not load: {own.error}</p>}
+        </section>
+
+        {m.agents.length > 0 && (
+          <section>
+            <div className="sec">
+              <span>AGENTS</span>
+              <span>{m.agents.filter((a) => a.state === 'active').length} active</span>
+            </div>
+            <ul className="sessions">
+              {m.agents.map((a) => (
+                <li key={a.id}>
+                  <button type="button" className="session" onClick={() => onSelect(a.id)}>
+                    <Mark agent={a.id} size={28} mode={agentMode(a)} />
+                    <span className="s-title">{shortName(a)}</span>
+                    <span className="s-time">{ago(a.last_seen, now)}</span>
+                    <span className="s-meta">
+                      {a.state}
+                      {a.last_tool ? ` · last ${a.last_tool}` : ''} · {a.claims.length ? `on ${a.claims[0]?.title}` : 'no claim'}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <section>
+          <div className="sec">
+            <span>WORKING ON</span>
+            <span>{m.working.length}</span>
+          </div>
+          {m.working.length ? (
+            <ul className="sessions">
+              {m.working.map((t) => (
+                <TaskRow key={t.id} t={t} now={now} onSelect={onSelect} meta={`Working${t.owner === m.who ? '' : ` via ${owner(t.owner)}`} · ${t.side} · ${paths(t)}${t.pr ? ` · PR ${t.pr}` : ''}`} />
+              ))}
+            </ul>
+          ) : (
+            <p className="pane-empty">{name} holds no claim right now.</p>
+          )}
+        </section>
+
+        <section>
+          <div className="sec">
+            <span>ASSIGNED</span>
+            <span>{m.assigned.length}</span>
+          </div>
+          {me && m.assigned.length > 0 && <p className="p-hint">jam suggested these for you. Open one to accept it, dismiss it or copy its prompt.</p>}
+          {m.assigned.length ? (
+            <ul className="sessions">
+              {m.assigned.map((t) => (
+                <TaskRow key={t.id} t={t} now={now} onSelect={onSelect} meta={t.reason ?? `Proposed by ${t.proposed_by ?? 'jam'}`} />
+              ))}
+            </ul>
+          ) : (
+            <p className="pane-empty">No work orders are waiting for {name}. jam drafts them from todos the team says out loud.</p>
+          )}
+        </section>
+
+        {m.finished.length > 0 && (
+          <section>
+            <div className="sec">
+              <span>FINISHED</span>
+              <span>{m.finished.length}</span>
+            </div>
+            <ul className="sessions">
+              {m.finished.slice(0, 8).map((t) => (
+                <TaskRow key={t.id} t={t} now={now} onSelect={onSelect} meta={`Done${t.owner === m.who ? '' : ` via ${owner(t.owner)}`} · ${t.side}${t.pr ? ` · PR ${t.pr}` : ''}${t.note ? ` · ${t.note}` : ''}`} />
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <section>
+          <div className="sec">
+            <span>LATEST FROM {name.toUpperCase()}</span>
+            <span>{said.length}</span>
+          </div>
+          {said.slice(0, 6).map((d) => (
+            <Entry key={d.id} doc={d} />
+          ))}
+          {saidError && <p className="pane-empty bad" role="alert">Their entries did not load: {saidError}</p>}
+          {!said.length && saidLoading && <p className="pane-empty" role="status">Loading {name}'s entries…</p>}
+          {!said.length && !saidLoading && !saidError && <p className="pane-empty">Nothing from {name} in the brain yet.</p>}
+        </section>
+      </div>
+    </div>
   )
 }
 
