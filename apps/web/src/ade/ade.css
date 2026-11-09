@@ -1453,3 +1453,67 @@
     color: var(--ink);
   }
 }
+
+/* ---------- chaos label, grading, long text ---------- */
+
+.ade {
+  .chaos-tag {
+    flex: none;
+    padding: 1px 6px;
+    border: 1px solid var(--red);
+    border-radius: 4px;
+    color: var(--red);
+    font: 600 11px var(--mono);
+    letter-spacing: 0.04em;
+  }
+  /* A phone has no room for both: the label matters more than the wordmark (the mark stays). */
+  @media (max-width: 980px) {
+    .bar:has(.chaos-tag) .wm {
+      display: none;
+    }
+  }
+  /* Shrinks before the connection state does; the header tag stays whole at any width. */
+  .sb .sb-chaos {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Inherited: a pasted URL or hash breaks instead of pushing the pane sideways. */
+  .transcript,
+  .item,
+  .note {
+    overflow-wrap: anywhere;
+  }
+  /* .fpath is direction: rtl so it truncates from the left; these marks keep a path's own
+     leading and trailing punctuation where it belongs ("apps/web/", not "/apps/web"). */
+  .fpath::before,
+  .fpath::after {
+    content: "\200E";
+  }
+  .grade {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 8px;
+    margin-top: 4px;
+    font: 11px var(--mono);
+    color: var(--mute);
+  }
+  .item .grade .text-btn {
+    padding: 1px 6px;
+    font: 500 11px var(--mono);
+  }
+  .item.rejected p {
+    text-decoration: line-through;
+    color: var(--mute);
+  }
+  .sec-link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .sec-link:hover {
+    color: var(--ink);
+  }
+}
