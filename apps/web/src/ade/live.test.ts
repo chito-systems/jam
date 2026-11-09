@@ -159,7 +159,7 @@ describe('grading and links', () => {
   })
 
   it('escapes the team code in the decision log link', () => {
-    expect(decisionLogUrl('cnh slc&x')).toBe('/api/decisions.md?team_id=cnh%20slc%26x')
+    expect(decisionLogUrl('cnh slc&x')).toBe('/api/decisions.md?team_id=cnh%20slc%26x&kinds=todo,question')
   })
 })
 

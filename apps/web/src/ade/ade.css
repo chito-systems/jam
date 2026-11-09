@@ -1517,3 +1517,285 @@
     color: var(--ink);
   }
 }
+
+/* ---------- work orders, chaos switch ---------- */
+
+.ade {
+  .sec-orders span:first-child {
+    color: var(--ink);
+  }
+  .orders-list {
+    flex: none;
+    max-height: 40%;
+  }
+  .path-link {
+    margin-left: auto;
+    color: var(--mute);
+    text-decoration: underline;
+    text-decoration-color: var(--soft);
+    text-underline-offset: 2px;
+  }
+  .path-link:hover {
+    color: var(--ink);
+  }
+
+  /* The feed's strip: proposed orders sit above the conversation, never scrolled away. */
+  .orders {
+    flex: none;
+    max-height: 38%;
+    overflow-y: auto;
+    padding: 10px 18px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .orders > ul,
+  .orders-head {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+  .orders-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 6px;
+    font: 11px var(--mono);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .orders li + li {
+    margin-top: 6px;
+  }
+  .order-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    column-gap: 12px;
+    align-items: center;
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--paper);
+  }
+  .order-row:hover {
+    border-color: var(--ink);
+  }
+  .o-title {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .o-time {
+    font: 11px var(--mono);
+    color: var(--mute);
+  }
+  .o-open {
+    grid-row: 1 / span 2;
+    grid-column: 3;
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .o-meta {
+    grid-column: 1 / 3;
+    font-size: 12px;
+    color: var(--mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .o-meta b {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  /* One work order, opened. */
+  .order {
+    gap: 12px;
+    padding-bottom: 24px;
+  }
+  .order-kicker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font: 11px var(--mono);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--mute);
+  }
+  .order-title {
+    margin: 0;
+    font: 650 22px / 1.25 var(--sans);
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+  .order-for {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 14px;
+  }
+  .order-for .k {
+    font: 11px var(--mono);
+    text-transform: uppercase;
+    color: var(--mute);
+  }
+  .order-for b {
+    font-weight: 600;
+  }
+  .order-reason {
+    margin-top: -6px;
+    color: var(--mute);
+  }
+  .order-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .order-actions .btn {
+    height: 30px;
+    padding: 0 14px;
+  }
+  .order-msg {
+    font-size: 12.5px;
+  }
+  .order-problem p {
+    font-size: 13.5px;
+  }
+  .order-problem pre {
+    margin: 8px 0 0;
+    font: 12px / 1.55 var(--mono);
+    white-space: pre-wrap;
+  }
+  .order-paths-in {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .order-paths-in input {
+    flex: 1;
+    min-width: 0;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--ink);
+    border-radius: 6px;
+    background: var(--paper);
+    color: var(--ink);
+    font: 12.5px var(--mono);
+  }
+  .order-paths-in .btn {
+    height: 30px;
+  }
+  .order-none {
+    padding: 8px 10px 9px;
+    font-size: 12.5px;
+    color: var(--mute);
+  }
+  .order .call .body pre {
+    padding-left: 10px;
+  }
+  .order-spec {
+    padding-top: 4px;
+  }
+
+  /* Markdown from jam, rendered as text. */
+  .md {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .md h4 {
+    margin: 10px 0 0;
+    font: 11px var(--mono);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--mute);
+  }
+  .md h4:first-child {
+    margin-top: 0;
+  }
+  .md blockquote {
+    margin: 0;
+    padding: 2px 0 2px 12px;
+    border-left: 2px solid var(--ink);
+    text-wrap: pretty;
+  }
+  .md pre {
+    margin: 0;
+    padding: 8px 10px;
+    background: var(--panel);
+    border-radius: 6px;
+    font: 12px / 1.55 var(--mono);
+    overflow-x: auto;
+  }
+  .md-checks li,
+  .md-list li {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+  }
+  .md-checks li + li,
+  .md-list li + li {
+    margin-top: 4px;
+  }
+  .md-checks .tick {
+    position: relative;
+    top: 2px;
+  }
+  .md-list li::before {
+    content: "–";
+    color: var(--mute);
+  }
+
+  /* Chaos: a demo tool, so a quiet word in the status bar and a confirm before it turns on. */
+  .sb .sb-quiet {
+    color: var(--mute);
+  }
+  .chaos-pop {
+    position: fixed;
+    right: 12px;
+    bottom: 32px;
+    z-index: 30;
+    width: min(320px, calc(100vw - 24px));
+    display: grid;
+    gap: 6px;
+    padding: 12px;
+    border: 1px solid var(--red);
+    border-radius: 8px;
+    background: var(--paper);
+    box-shadow: var(--shadow);
+    font: 13px / 1.45 var(--sans);
+    color: var(--ink);
+    white-space: normal;
+  }
+  .chaos-pop p {
+    color: var(--mute);
+  }
+  .chaos-pop p.bad {
+    color: var(--red);
+  }
+  .chaos-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  @media (max-width: 980px) {
+    .orders {
+      padding: 10px 14px 12px;
+    }
+    .order-title {
+      font-size: 19px;
+    }
+    .order-paths-in input {
+      font-size: 16px;
+    }
+  }
+}
