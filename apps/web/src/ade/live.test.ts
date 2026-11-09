@@ -1,6 +1,6 @@
 import type { CaptureStatus, ItemDoc, RawDoc, TaskDoc } from '@hh/shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { agentName, ago, clock, decisionLogUrl, formatMs, isAgent, itemNewer, loadIdentity, mergeNew, newlyDone, pct, pendingCaptures, saveIdentity, sortTasks, taskNewer, threadFor, upsert } from './live'
+import { agentName, ago, captainsOf, clock, decisionLogUrl, formatMs, grouped, isAgent, itemNewer, loadIdentity, type Member, member, memberLine, mergeNew, newlyDone, pct, pendingCaptures, roster, saveIdentity, sortTasks, taskNewer, threadFor, upsert } from './live'
 
 const task = (over: Partial<TaskDoc>): TaskDoc => ({
   team_id: 't1',
@@ -225,5 +225,85 @@ describe('newlyDone', () => {
   })
   it('ignores tasks it has never seen, so a baseline load is silent', () => {
     expect(newlyDone([], [task({ id: 'a', status: 'done' })])).toEqual([])
+  })
+})
+
+describe('people', () => {
+  const tasks = [
+    task({ id: 'w1', owner: 'cam', side: 'backend', status: 'claimed', paths: ['apps/api/src/a.ts'] }),
+    task({ id: 'd1', owner: 'cam', side: 'backend', status: 'done' }),
+    task({ id: 'p1', owner: 'jam', proposed_by: 'jam', side: 'frontend', status: 'proposed', suggested_owner: 'jake', paths: [] }),
+    task({ id: 'w2', owner: 'agent:opus-1', side: 'frontend', status: 'claimed', paths: ['apps/web/src/x.tsx'] }),
+  ]
+
+  it('splits a person into working, assigned and finished, and reads their side from their claims', () => {
+    const cam = member('cam', tasks, [doc({ who: 'cam', side: 'frontend' })])
+    expect(cam.working.map((t) => t.id)).toEqual(['w1'])
+    expect(cam.finished.map((t) => t.id)).toEqual(['d1'])
+    expect(cam.assigned).toEqual([])
+    expect(cam.side).toBe('backend')
+    expect(cam.holding).toEqual(['apps/api/src/a.ts'])
+    expect(cam.said).toHaveLength(1)
+  })
+
+  it('counts work orders jam suggested, and has no side without evidence', () => {
+    const jake = member('Jake', tasks, [])
+    expect(jake.assigned.map((t) => t.id)).toEqual(['p1'])
+    expect(jake.working).toEqual([])
+    expect(jake.side).toBe('frontend')
+    expect(member('gitar', tasks, []).side).toBeUndefined()
+  })
+
+  it('lists brain authors, claim owners and suggested owners, busiest first, without jam', () => {
+    const list = roster({ gitar: 4, jake: 2 }, tasks, [])
+    expect(list.map((m) => m.who)).toEqual(['agent:opus-1', 'cam', 'jake', 'gitar'])
+    expect(memberLine(list[0] as Member)).toBe(`on ${tasks[3]?.title}`)
+    expect(memberLine(list[2] as Member)).toBe('1 assigned')
+    expect(memberLine(list[3] as Member)).toBe('4 in brain')
+  })
+
+  it('takes a captain\'s side from the roster and lists quiet captains', () => {
+    const own = { sides: [{ side: 'frontend' as const, paths: ['apps/web/'], captain: 'cam', claims: [] }, { side: 'backend' as const, paths: [], claims: [] }] }
+    const captains = captainsOf(own)
+    expect(captains).toEqual({ frontend: 'cam' })
+    const cam = member('cam', tasks, [], 0, captains)
+    expect(cam.side).toBe('frontend')
+    expect(cam.captain).toBe('frontend')
+    expect(roster({}, [], [], { backend: 'Lee' }).map((m) => [m.who, m.captain])).toEqual([['Lee', 'backend']])
+  })
+
+
+  it('puts each agent under the person it works for, from /api/agents', () => {
+    const agent = (id: string, human: string | undefined, state: 'active' | 'idle' | 'gone') => ({
+      team_id: 't1', id, name: id.slice(6), human, state, first_seen: '2026-11-09T19:00:00.000Z', last_seen: '2026-11-09T19:00:00.000Z', calls: 3, claims: [],
+    })
+    const agents = [agent('agent:cam-opus-1', 'cam', 'active'), agent('agent:stray-1', undefined, 'idle'), agent('agent:cam-old', 'cam', 'gone')]
+    const list = roster({ jake: 1 }, [], [], {}, agents)
+    expect(list.map((m) => m.who).sort()).toEqual(['agent:cam-opus-1', 'agent:stray-1', 'cam', 'jake'])
+    const cam = list.find((m) => m.who === 'cam') as Member
+    expect(cam.agents.map((a) => a.id)).toEqual(['agent:cam-opus-1', 'agent:cam-old'])
+    expect(memberLine(cam)).toBe('1 agent active')
+    const busy = member('cam', [task({ id: 'a1', owner: 'agent:cam-opus-1', status: 'claimed', paths: ['apps/api/x.ts'] })], [], 0, {}, agents)
+    expect(busy.working.map((t) => t.id)).toEqual(['a1'])
+    expect(busy.holding).toEqual(['apps/api/x.ts'])
+    expect(memberLine(list.find((m) => m.who === 'agent:stray-1') as Member)).toBe('idle')
+    expect(grouped(list).map((g) => [g.m.who, g.under])).toEqual([
+      ['jake', undefined],
+      ['cam', undefined],
+      ['agent:cam-opus-1', 'cam'],
+      ['agent:stray-1', undefined],
+    ])
+  })
+
+  it('keeps a person when their agent shares their name, and gives the agent no captaincy or work orders', () => {
+    const agents = [{ team_id: 't1', id: 'agent:jake', name: 'jake', human: 'jake', state: 'active' as const, first_seen: '2026-11-09T19:00:00.000Z', last_seen: '2026-11-09T19:00:00.000Z', calls: 1, claims: [] }]
+    const list = roster({}, tasks, [], { frontend: 'jake' }, agents)
+    const jake = list.find((m) => m.who === 'jake') as Member
+    const bot = list.find((m) => m.who === 'agent:jake') as Member
+    expect(jake.captain).toBe('frontend')
+    expect(jake.assigned.map((t) => t.id)).toEqual(['p1'])
+    expect(bot.captain).toBeUndefined()
+    expect(bot.assigned).toEqual([])
+    expect(grouped(list).find((g) => g.m.who === 'agent:jake')?.under).toBe('jake')
   })
 })
