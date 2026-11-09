@@ -7,3 +7,4 @@ export * from "./tasks";
 export * from "./assign";
 export * from "./ownership";
 export * from "./telemetry";
+export * from "./presence";

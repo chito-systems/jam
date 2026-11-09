@@ -9,13 +9,17 @@ import {
   type Dispatcher,
   type ItemDoc,
   ownershipOf,
+  humanOf,
   parseRoster,
+  type Presence,
+  type RosterEntry,
   ItemKindSchema,
   ItemVerdictSchema,
   type RawDoc,
   reportClash,
   type SearchHit,
   setItemVerdict,
+  SIDE_PATHS,
   type Side,
   SideSchema,
   SourceTypeSchema,
@@ -31,12 +35,18 @@ import { z } from "zod";
 export interface McpDeps {
   store: ContextStore;
   dispatcher: Dispatcher;
+  /** Who is on the team right now. Every request marks the caller seen. */
+  presence?: Presence;
+  /** Defaults to JAM_ROSTER. */
+  roster?: RosterEntry[];
 }
 
 interface Caller {
   team_id: string;
   who: string;
   side?: Side;
+  /** Marks a tool call in presence. */
+  onTool?: (tool: string) => void;
 }
 
 const QuerySchema = z.object({
@@ -65,7 +75,10 @@ export async function handleMcpRequest(request: Request, deps: McpDeps): Promise
   // Stateless: no standalone SSE stream to GET, no session to DELETE.
   if (request.method !== "POST") return jsonError(405, "method not allowed: this MCP server is stateless, POST only");
 
-  const server = buildServer(deps, query.data);
+  const { presence } = deps;
+  presence?.seen(query.data);
+  const onTool = presence ? (tool: string) => presence.seen({ ...query.data, tool }) : undefined;
+  const server = buildServer(deps, { ...query.data, onTool });
   const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
   await server.connect(transport);
   try {
@@ -82,6 +95,7 @@ const text = (body: string, structured?: Record<string, unknown>): CallToolResul
 
 /** Runs a tool body in a span; any failure becomes an MCP tool error instead of a 500. */
 async function run(name: string, caller: Caller, fn: () => Promise<CallToolResult>): Promise<CallToolResult> {
+  caller.onTool?.(name);
   try {
     return await withSpan(`mcp.${name}`, { team_id: caller.team_id, who: caller.who }, fn);
   } catch (err) {
@@ -127,6 +141,8 @@ export function nextWork(proposed: TaskDoc[], who: string, side?: Side): TaskDoc
   const sides = proposed.filter((t) => !named(t) && side !== undefined && t.side === side).sort(oldest);
   return [...mine, ...sides];
 }
+export const UNNAMED_HINT =
+  "Your MCP url has no recognizable name. Re-add it with who=<human>-<model>-<n>, e.g. who=cam-opus-1, so teammates can tell agents apart.";
 const TAKE_IT = "To take it: task_accept with this id (add paths if none are listed). If it isn't yours to take, leave it.";
 const sideArg = SideSchema.optional().describe("Only from this half of the team: backend or frontend");
 
@@ -156,6 +172,37 @@ function buildServer(deps: McpDeps, caller: Caller): McpServer {
       console.error("mcp.task brain write failed", { team_id, who: me, task_id: task.id, err });
     }
   };
+
+  server.registerTool(
+    "whoami",
+    {
+      description: "Call once at the start of a session. Tells you who you are on this team and what you hold.",
+      inputSchema: {},
+    },
+    () =>
+      run("whoami", caller, async () => {
+        const human = humanOf(caller.who, deps.roster ?? parseRoster(process.env.JAM_ROSTER));
+        const owns = caller.side ? [...SIDE_PATHS[caller.side]] : [];
+        const claims = (await store.tasks({ team_id, status: "claimed", limit: 200 })).filter((t) => t.owner === me);
+        const lines = [
+          `You are ${me} on team ${team_id}.`,
+          human ? `You work for ${human}.` : "No human on the roster matches your name.",
+          caller.side
+            ? `Side: ${caller.side}. That side owns ${owns.join(", ")}.`
+            : "No side: add &side=backend|frontend to the MCP url to claim paths.",
+          claims.length > 0 ? "You hold:" : "You hold no open claims.",
+          ...claims.map((t) => `- ${t.title}: ${t.paths.join(", ")} (task ${t.id})`),
+        ];
+        if (!human) lines.push("", UNNAMED_HINT);
+        return text(lines.join("\n"), {
+          id: me,
+          ...(human ? { human } : {}),
+          ...(caller.side ? { side: caller.side } : {}),
+          owns,
+          claims: claims.map((t) => ({ id: t.id, title: t.title, paths: t.paths })),
+        });
+      }),
+  );
 
   server.registerTool(
     "context_search",

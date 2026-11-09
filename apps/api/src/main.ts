@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { createStoreFromEnv, parseRoster } from "@hh/shared";
+import { createPresence, createStoreFromEnv, parseRoster } from "@hh/shared";
 import {
   createGithubPollerFromEnv,
   createInlineDispatcher,
@@ -19,6 +19,7 @@ const librarian = createLibrarianFromEnv(process.env);
 const planner = createPlannerFromEnv(process.env);
 const roster = parseRoster(process.env.JAM_ROSTER);
 const chaos = createChaosSwitch(process.env.CHAOS_MODE === "true");
+const presence = createPresence();
 const allowChaosSwitch = process.env.CHAOS_SWITCH !== "off";
 const dispatcher = createInlineDispatcher({
   store,
@@ -43,7 +44,7 @@ try {
 github?.start(); // first tick runs after ensureReady, so the seen-set seeds from a ready store
 
 const port = Number(process.env.PORT ?? process.env.API_PORT ?? 3000);
-serve({ fetch: createApp({ store, dispatcher, webDist, chaos, allowChaosSwitch }).fetch, port }, (info) => {
+serve({ fetch: createApp({ store, dispatcher, webDist, chaos, allowChaosSwitch, presence }).fetch, port }, (info) => {
   console.log(
     `api listening on :${info.port} store=${store.constructor.name} transcriber=${transcriber?.name ?? "none"} librarian=${librarian?.name ?? "none"} planner=${planner?.name ?? "none"} chaos=${chaos.get().enabled} chaos_switch=${allowChaosSwitch ? "on" : "off"} web=${webDist ?? "none"} github=${github?.repo ?? "off"}`,
   );

@@ -12,6 +12,8 @@ import {
   IngestUploadFieldsSchema,
   ItemsParamsSchema,
   type ItemsResponse,
+  createPresence,
+  type Presence,
   RecentParamsSchema,
   type RecentResponse,
   ROUTES,
@@ -23,6 +25,7 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { matchedRoutes } from "hono/route";
 import { streamSSE } from "hono/streaming";
+import { registerAgentRoutes } from "./agents-routes";
 import { CAPTURE_PAGE_HTML } from "./capture-page";
 import { type ChaosSwitch, createChaosSwitch, registerChaosRoutes } from "./chaos-routes";
 import { registerDecisionRoutes } from "./decisions-routes";
@@ -39,6 +42,8 @@ export interface AppDeps {
   chaos?: ChaosSwitch;
   /** False when env CHAOS_SWITCH=off: POST /api/chaos then returns 403. Default true. */
   allowChaosSwitch?: boolean;
+  /** Which agents are on the team. Shared by the MCP mount and /api/agents. Defaults to a fresh one. */
+  presence?: Presence;
 }
 
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
@@ -77,6 +82,7 @@ export const isAudioUpload = (mime: string, type: string) =>
 export function createApp(deps: AppDeps): Hono<Env> {
   const { store, dispatcher } = deps;
   const chaos = deps.chaos ?? createChaosSwitch(false);
+  const presence = deps.presence ?? createPresence();
   const app = new Hono<Env>();
 
   // One span per request, named by the matched route pattern (not the raw path: low cardinality).
@@ -224,8 +230,9 @@ export function createApp(deps: AppDeps): Hono<Env> {
   registerDecisionRoutes(app, { store });
   registerItemRoutes(app, { store, dispatcher });
   registerOwnershipRoutes(app, { store });
+  registerAgentRoutes(app, { store, presence });
 
-  app.all(ROUTES.mcp, (c) => handleMcpRequest(c.req.raw, { store, dispatcher }));
+  app.all(ROUTES.mcp, (c) => handleMcpRequest(c.req.raw, { store, dispatcher, presence }));
 
   app.get("/c", (c) => c.html(CAPTURE_PAGE_HTML));
 

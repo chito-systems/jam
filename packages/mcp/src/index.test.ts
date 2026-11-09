@@ -1,6 +1,6 @@
-import { type CaptureStatus, type Dispatcher, type FeedEvent, type IngestJob, MemoryStore, type TaskDoc } from "@hh/shared";
+import { type CaptureStatus, type Dispatcher, type FeedEvent, type IngestJob, MemoryStore, createPresence, parseRoster, type TaskDoc } from "@hh/shared";
 import { describe, expect, it } from "vitest";
-import { handleMcpRequest, nextWork } from "./index";
+import { handleMcpRequest, nextWork, UNNAMED_HINT } from "./index";
 
 /** Indexes text jobs straight into the store, like the inline dispatcher will. */
 function fakeDispatcher(store: MemoryStore, published: FeedEvent[] = []): Dispatcher {
@@ -30,7 +30,8 @@ function fakeDispatcher(store: MemoryStore, published: FeedEvent[] = []): Dispat
 function setup() {
   const store = new MemoryStore();
   const published: FeedEvent[] = [];
-  const deps = { store, dispatcher: fakeDispatcher(store, published) };
+  const presence = createPresence();
+  const deps = { store, dispatcher: fakeDispatcher(store, published), presence, roster: parseRoster("cam:backend,jake:frontend") };
   let nextId = 1;
   const post = (method: string, params: unknown, query = "team_id=t1&who=opus-1") =>
     handleMcpRequest(
@@ -48,7 +49,7 @@ function setup() {
     const result = body.result as { content: { text: string }[]; isError?: boolean };
     return { text: result.content.map((c) => c.text).join("\n"), isError: result.isError };
   };
-  return { store, post, call, published };
+  return { store, post, call, published, presence };
 }
 
 describe("handleMcpRequest", () => {
@@ -64,7 +65,7 @@ describe("handleMcpRequest", () => {
     expect(body.result.serverInfo.name).toBe("hack-harness-context");
   });
 
-  it("lists the eleven tools", async () => {
+  it("lists the twelve tools", async () => {
     const { post } = setup();
     const body = await (await post("tools/list", {})).json();
     const names = body.result.tools.map((t: { name: string }) => t.name).sort();
@@ -80,6 +81,7 @@ describe("handleMcpRequest", () => {
       "task_list",
       "task_next",
       "who_owns",
+      "whoami",
     ]);
   });
 
@@ -320,5 +322,30 @@ describe("task tools", () => {
     const body = await res.json();
     expect(body.result.isError).toBeFalsy();
     expect((await call("task_list", {})).text).toContain("agent:opus-a");
+  });
+});
+
+describe("whoami", () => {
+  const named = "team_id=t1&who=cam-opus-1&side=backend";
+
+  it("names the human, side, owned folders and open claims, and marks presence", async () => {
+    const { call, presence } = setup();
+    await call("task_claim", { title: "agents route", paths: ["apps/api/"] }, named);
+    const { text, isError } = await call("whoami", {}, named);
+    expect(isError).toBeFalsy();
+    expect(text).toContain("You are agent:cam-opus-1 on team t1.");
+    expect(text).toContain("You work for cam.");
+    expect(text).toContain("Side: backend. That side owns apps/api/");
+    expect(text).toMatch(/- agents route: apps\/api \(task \S+\)/);
+    expect(text).not.toContain(UNNAMED_HINT);
+    expect(presence.list("t1")[0]).toMatchObject({ who: "cam-opus-1", side: "backend", last_tool: "whoami", calls: 2 });
+  });
+
+  it("reminds the default-named agent to pick a name", async () => {
+    const { call } = setup();
+    const { text } = await call("whoami", {}, "team_id=t1");
+    expect(text).toContain("You are agent:agent on team t1.");
+    expect(text).toContain("No side");
+    expect(text).toContain(UNNAMED_HINT);
   });
 });

@@ -38,17 +38,24 @@ Theme: "build anything that makes conferences better." We will be asked.
 
 Pick **one** as the moment. Recommendation: #1 + #2 together (they're the same 20 seconds), with #3 as the closer.
 
-## 90-second script (v1 — edit freely)
-- **0:00 · Jake.** "Two people, a dozen coding agents, six hours. By noon nobody, human or agent, had the same picture of what we'd decided. Agents built the wrong thing confidently. We became the message bus."
-- **0:12 · Jake.** "So at 11 we built the thing we needed, and used it to build itself." *(phone up, hold the button)* "Decision: the worker retries indexing three times, then drops to keyword-only."
-- **0:22 · Cam.** *(screen: the capture lands, "searchable in 3.8 s")* "That's in Elasticsearch. Raw transcript, immutable, hybrid keyword-plus-semantic search."
-- **0:30 · Cam.** *(fresh Claude Code terminal)* "What did we decide about indexing failures?" *(agent answers via MCP, cites Jake, cites the time)* "Every agent on both laptops reads the same brain. That one tool call is the whole harness."
-- **0:45 · Cam.** *(merge queue)* "Every change today was a PR, reviewed by Gitar against our rules, landed through a queue. N PRs. Gitar caught ___."
-- **0:55 · Cam.** *(flip chaos)* "Break the indexer." *(number goes red; Dash0 trace; Radar investigation)* "Dash0 shows the slow span. Radar's investigation names the cause."
-- **1:10 · Jake.** *(README decision log)* "And here's every decision we made today, each linked to the moment we said it. That's our AI disclosure."
-- **1:20 · Jake.** "Tomorrow we take the same button to KubeCon. Everything you just saw was built through itself. Repo's public."
+## 90-second script (v2, 3:10 PM — built around what works today)
+Setup before walking up: JAM open in its own window on team `hh`, a second terminal with a fresh Claude Code session that has the `jam` MCP, phone or laptop mic ready. One person talks, the other drives.
 
-**30-second cut:** 0:00 line → hold button, say a decision → agent answers it → last line.
+- **0:00 · Jake.** "Two people, a dozen coding agents, six hours. By noon nobody, human or agent, had the same picture of what we'd decided, and two agents were editing the same file. We became the message bus."
+- **0:10 · Jake.** "So we built the thing we needed, and used it to build itself." *(hold to talk)* "Cam, can you make the decision log show which pull request closed each decision."
+- **0:20 · Cam.** *(screen: "searchable in 4.x s")* "That's in Elasticsearch. The transcript is immutable; keyword and semantic search in one query."
+- **0:28 · Cam.** *(a proposed work order appears)* "jam, our librarian, turned that sentence into a work order: a build prompt quoting Jake's own words, acceptance criteria, and it's assigned to me. The reason is right there: 'Cam was named in the request.' It's a rule, not a guess."
+- **0:42 · Cam.** *(click Accept; switch to the terminal; the agent calls `task_next` / `whoami`)* "My agent picks it up through one MCP server. It knows who it is, whose agent it is, and which files are its to touch."
+- **0:55 · Jake.** *(second agent tries to claim the same file; refused)* "A second agent reaches for the same file and gets told no, by name. The delegator won't hand two agents the same file."
+- **1:05 · Cam.** *(PR list / Gitar review in the feed)* "Every change today was a pull request reviewed by Gitar: N of them. It caught a race where a human's 'reject' could be overwritten by the model. We fixed it before merge."
+- **1:15 · Jake.** *(decision log)* "And this is our AI disclosure: every decision we made today, who said it, when, and the exact words. jam proposes, a human confirms."
+- **1:25 · Jake.** "Tomorrow we take the same button to KubeCon. Everything you saw was built through itself. The repo's public."
+
+**If there's time for one more beat (10 s):** flip the chaos switch; "searchable in X s" goes red; flip it back.
+
+**30-second cut:** the 0:00 line → say a todo → the work order appears with the reason → the second agent gets refused → last line.
+
+**If the cluster isn't up:** demo from the laptop and say so in one sentence. Don't apologize twice.
 
 ## The delegation beat (new, 1:25)
 Two laptops, two orchestrators, a dozen subagents, one repo. The demo: agent A claims `apps/api/`; agent B on the other laptop tries to touch `apps/api/src/app.ts` and gets told no, by name, with who holds it. Then show the tasks pane: who is editing what, live. Line: **"The delegator won't hand two agents the same file."** This is the concrete answer to "where's the harness?"
@@ -67,7 +74,7 @@ Two laptops, two orchestrators, a dozen subagents, one repo. The demo: agent A c
 - **Sandoval — "who is this for?"** Today: us and the 50 teams in this room. Next: any team where agents outnumber people.
 - **Estes / Novack — "why Elasticsearch, not Postgres + pgvector?"** Hybrid BM25 + semantic in one query with RRF, embeddings computed on ingest by `semantic_text`, and immutability enforced by create-only writes. No embedding service to run.
 - **Barreiro (Cline) — "where's the harness? did you build an agent?"** No. We orchestrate Claude Code. The harness is the shared context tool, the ownership rules, and the merge queue. Show AGENTS.md.
-- **Furst Morgado (Dash0) — "what did observability find?"** ___ (fill with the real incident)
+- **Furst Morgado (Dash0) — "why no Dash0?"** The OpenTelemetry instrumentation is in the repo and tested against a local collector: one trace per capture, a time-to-searchable histogram. We didn't wire it to Dash0 because we wouldn't claim a track we hadn't used all day. The SLO number is in the product itself.
 - **Erell (Radar) — "what did the investigation tell you?"** ___ (fill with the real one)
 - **Schrottner (Flagsmith) — "is chaos a feature flag?"** It's an env flag today, off by default and labeled in the UI when on. A real flag service is the right next step.
 - **Anyone — "did AI write all of this?"** Most of the code, under rules we wrote, every change through a reviewed PR. Ask us about any file. And the decision log shows which human decided what, and when.
@@ -92,6 +99,8 @@ Two laptops, two orchestrators, a dozen subagents, one repo. The demo: agent A c
 - **12:20 · Fable (backend).** Created this file. Contract is in `packages/shared/src/types.ts`. v0 capture is three PRs away.
 - **1:10 · Fable (backend).** v0 is live against real Elasticsearch + Whisper. Measured: voice clip searchable in 4.1 s, text in 5.5 s (cold). Search returns `mode: "hybrid"`; a paraphrase with almost no shared words found the note. Embeddings are `jina-embeddings-v5-text-small` (1024-dim) via Elastic's inference service, computed on ingest by `semantic_text` — say that to the Elastic judges.
 - **1:25 · Cam.** User-facing name is **JAM**. New pillar: **agent delegation** — agents claim paths before editing (`task_claim` over MCP); a claim that overlaps another agent's, or reaches into the other side's files, is refused. Everything in the brain is tagged backend or frontend.
+
+- **3:10 · Fable (backend).** Decisions since 1:25, all Cam's: skip the Dash0 track, go deep on Elasticsearch, Gitar and Radar. jam (the librarian) now grades itself and takes human verdicts; drafts work orders from todos with rule-based assignment; agents have identities (`who=cam-opus-1`) and a `whoami`. Measured live: a spoken-style todo became a proposed, assigned work order in ~20 s. Real things that broke and were fixed are listed in the README under "What broke today". No GitHub merge queue (personal-account repo): say "reviewed by Gitar and CI before merge".
 
 ### Cam
 
