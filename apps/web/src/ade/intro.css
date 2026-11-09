@@ -1,0 +1,139 @@
+/* The load-in sheet. Sits on :root tokens, so it reads in both themes before .ade mounts. */
+
+.jam-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 18px;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.jam-intro-lockup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Optical centre: the mark is heavier than the word. */
+  transform: translateX(-6px);
+}
+
+.jam-intro-mark {
+  width: 92px;
+  height: 92px;
+  margin: -10px -4px -10px -10px;
+}
+
+.jam-intro-wm {
+  display: flex;
+  font: 800 54px / 1 "Bricolage Grotesque", "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.03em;
+}
+
+/* Type set one sort at a time, just after the pink lands. */
+.jam-intro-wm span {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(0.16em);
+  animation: jam-intro-set 240ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+.jam-intro-wm span:nth-child(1) {
+  animation-delay: 380ms;
+}
+.jam-intro-wm span:nth-child(2) {
+  animation-delay: 440ms;
+}
+.jam-intro-wm span:nth-child(3) {
+  animation-delay: 500ms;
+}
+
+@keyframes jam-intro-set {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Only if the brain is slow: one quiet line, no spinner. */
+.jam-intro-note {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(18% + env(safe-area-inset-bottom));
+  margin: 0;
+  text-align: center;
+  font: 11px / 1 "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mute);
+  opacity: 0;
+  transition: opacity 400ms ease;
+}
+.jam-intro-note[data-on="true"] {
+  opacity: 1;
+}
+
+/* Off the press: the sheet peels upward from the bottom edge, the lockup lifts with it. */
+.jam-intro[data-state="out"] {
+  pointer-events: none;
+  animation: jam-intro-peel 350ms cubic-bezier(0.7, 0, 0.2, 1) forwards;
+}
+.jam-intro[data-state="out"] .jam-intro-lockup {
+  animation: jam-intro-lift 350ms cubic-bezier(0.6, 0, 0.3, 1) forwards;
+}
+
+@keyframes jam-intro-peel {
+  from {
+    clip-path: inset(0 0 0 0);
+  }
+  to {
+    clip-path: inset(0 0 100% 0);
+  }
+}
+
+@keyframes jam-intro-lift {
+  to {
+    transform: translate(-6px, -40px);
+    opacity: 0;
+  }
+}
+
+/* Reduced motion: the printed lockup, then a short fade. Nothing moves. */
+.jam-intro[data-motion="reduce"] .jam-intro-wm span {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+.jam-intro[data-motion="reduce"][data-state="out"] {
+  animation: jam-intro-fade 150ms linear forwards;
+}
+.jam-intro[data-motion="reduce"][data-state="out"] .jam-intro-lockup {
+  animation: none;
+}
+.jam-intro[data-motion="reduce"] .jam-intro-note {
+  transition: none;
+}
+
+@keyframes jam-intro-fade {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .jam-intro-mark {
+    width: 80px;
+    height: 80px;
+    margin: -8px -4px -8px -8px;
+  }
+  .jam-intro-wm {
+    font-size: 46px;
+  }
+}

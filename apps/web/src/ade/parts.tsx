@@ -205,3 +205,16 @@ export function Palette({ commands, onClose }: { commands: Command[]; onClose: (
     </div>
   )
 }
+
+/** True at phone width. One Talk renders at a time, so its ⌥Space listener is never doubled. */
+const PHONE = '(max-width: 640px)'
+export function usePhone(): boolean {
+  const [phone, setPhone] = useState(() => window.matchMedia(PHONE).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(PHONE)
+    const on = () => setPhone(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return phone
+}

@@ -149,3 +149,43 @@
     gap: 6px;
   }
 }
+
+/* Phone: the setup fills the screen above the Hold to talk bar, so step three happens in place. */
+@media (max-width: 640px) {
+  .ade .guide-wrap.phone {
+    inset: 0 0 calc(72px + env(safe-area-inset-bottom));
+    padding: 0;
+    align-items: stretch;
+    background: none;
+  }
+  .ade .guide-wrap.phone .guide {
+    width: 100%;
+    overflow-y: auto;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-radius: 0 0 16px 16px;
+    padding-top: env(safe-area-inset-top);
+    box-shadow: 0 12px 24px rgb(0 0 0 / 0.08);
+  }
+  .ade .guide-wrap.phone .g-head h2 {
+    font-size: 24px;
+  }
+  .ade .guide-wrap.phone .g-step {
+    padding: 16px 18px;
+  }
+  .ade .guide-wrap.phone .g-step h3 {
+    font-size: 16px;
+  }
+  .ade .guide-wrap.phone .g-step p {
+    font-size: 15px;
+  }
+  .ade .guide-wrap.phone .g-act .btn {
+    height: 44px;
+    padding: 0 18px;
+    font-size: 15px;
+  }
+  .ade .guide-wrap.phone .g-note {
+    padding: 14px 18px 18px;
+    font-size: 13px;
+  }
+}

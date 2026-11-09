@@ -1,7 +1,8 @@
 import type { Side } from '@hh/shared'
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import './guide.css'
-import { agentCount, BRIDGE_COMMAND, BRIDGE_HEALTH, type Bridge, GUIDE_KEY, type Mic, mcpCommand, setupLine, stepStatus } from './steps'
+import { usePhone } from './parts'
+import { agentCount, BRIDGE_COMMAND, BRIDGE_HEALTH, type Bridge, GUIDE_KEY, type Mic, mcpCommand, phoneSteps, setupLine, stepStatus } from './steps'
 import type { Identity, Live } from './live'
 
 // The setup checklist. Every tick comes from a live signal; nothing is ticked by reading it.
@@ -34,7 +35,14 @@ function markSeen() {
   }
 }
 
-const standaloneNow = () => window.matchMedia('(display-mode: standalone)').matches
+// iOS Safari reports a home-screen app through navigator.standalone, not always the media query.
+const standaloneNow = () =>
+  window.matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true
+// iPadOS presents as a Mac; touch points tell them apart.
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+const PHONE = /Android|iPhone|iPod/.test(navigator.userAgent)
+// Inside the JAM iPhone app the shell exposes a message handler (haptics); in a browser it doesn't.
+const IN_APP = Boolean((window as Window & { webkit?: { messageHandlers?: { jam?: unknown } } }).webkit?.messageHandlers?.jam)
 
 async function micPermission(): Promise<Mic> {
   try {
@@ -101,6 +109,7 @@ export function Guide({ id, live, onSignOut, onClose }: { id: Identity; live: Li
   const [bridge, setBridge] = useState<Bridge>('checking')
   const [side, setSide] = useState<Side>('frontend')
   const [said, setSaid] = useState('')
+  const phone = usePhone()
 
   const close = useCallback(() => {
     markSeen()
@@ -156,7 +165,13 @@ export function Guide({ id, live, onSignOut, onClose }: { id: Identity; live: Li
       const name = e instanceof DOMException ? e.name : ''
       if (name === 'NotAllowedError' || name === 'SecurityError') {
         setMic('denied')
-        setMicMsg('The browser refused. Allow the microphone in this site’s settings (the icon at the left of the address bar), then try again.')
+        setMicMsg(
+          IN_APP
+            ? 'iPhone blocked it. Turn it on in Settings → JAM → Microphone, then try again.'
+            : phone && IOS
+              ? 'Safari blocked it. Tap aA in the address bar → Website Settings → Microphone → Allow, then try again.'
+              : 'The browser refused. Allow the microphone in this site’s settings (the icon at the left of the address bar), then try again.',
+        )
       } else if (name === 'NotFoundError') {
         setMicMsg('No microphone was found on this computer.')
       } else {
@@ -200,6 +215,53 @@ export function Guide({ id, live, onSignOut, onClose }: { id: Identity; live: Li
   const agents = agentCount(live.stats)
   const cmd = mcpCommand(window.location.origin, id, side)
 
+  // On a phone: a short setup about the phone itself. The sheet stops above the Hold to talk bar,
+  // so "say one thing" is done right here; agents and the terminal belong to a laptop.
+  if (phone) {
+    const steps = phoneSteps(IN_APP)
+    const finished = steps.every((s) => done[s])
+    return (
+      <div className="guide-wrap phone">
+        <div ref={box} className="guide" role="dialog" aria-modal="true" aria-labelledby="guide-title" tabIndex={-1} onKeyDown={trap}>
+          <header className="g-head">
+            <div>
+              <h2 id="guide-title">JAM on this phone</h2>
+              <p className="g-count">{setupLine(done, steps)}</p>
+            </div>
+            <button type="button" className="btn" onClick={close}>{finished ? 'Done' : 'Later'}</button>
+          </header>
+          <ol className="g-steps">
+            <Step done={done.in} title="You are in">
+              <p>Team <b>{id.team}</b> as <b>{id.who}</b>. Use the same team code as your laptop.</p>
+              <div className="g-act"><button type="button" className="text-btn" onClick={onSignOut}>Change</button></div>
+            </Step>
+            <Step done={done.mic} title="Turn on the microphone">
+              <p>{done.mic ? 'On. Tap the bar at the bottom to talk.' : `Talk records what you say. ${IN_APP ? 'iPhone' : 'The browser'} asks once.`}</p>
+              {micMsg && <p className="bad" role="alert">{micMsg}</p>}
+              {!done.mic && (
+                <div className="g-act"><button type="button" className="btn primary" onClick={() => void allowMic()}>Allow microphone</button></div>
+              )}
+            </Step>
+            <Step done={done.say} title="Say one thing">
+              <p>{done.say ? 'The brain has something from you. Every agent on the team can find it.' : 'Tap the bar below, say what you are working on, and tap again to send. It lands in the brain in a few seconds.'}</p>
+            </Step>
+            {steps.includes('install') && (
+              <Step done={done.install} title="Add JAM to your home screen">
+                <p>{IOS ? 'Tap Share, then Add to Home Screen. JAM opens full screen from its icon.' : 'Open the browser menu and tap Add to Home screen.'}</p>
+                {canInstall && !done.install && (
+                  <div className="g-act"><button type="button" className="btn primary" onClick={() => void install()}>Add to home screen</button></div>
+                )}
+              </Step>
+            )}
+          </ol>
+          <p className="g-note dim">
+            {agents ? `${agents} ${agents === 1 ? 'agent writes' : 'agents write'} to this brain.` : 'No agent has written to this brain yet.'} Connect your own coding agent from your laptop: open JAM there and follow its setup.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="guide-wrap" onPointerDown={close}>
       <div
@@ -231,7 +293,11 @@ export function Guide({ id, live, onSignOut, onClose }: { id: Identity; live: Li
             {done.install ? (
               <p>JAM is running as an installed app.</p>
             ) : canInstall ? (
-              <p>Gives JAM its own window and Dock icon.</p>
+              <p>{PHONE ? 'Puts JAM on your home screen, full screen.' : 'Gives JAM its own window and Dock icon.'}</p>
+            ) : IOS ? (
+              <p>In Safari, tap Share, then Add to Home Screen. JAM opens full screen from its icon.</p>
+            ) : PHONE ? (
+              <p>In Chrome, open the menu and tap Add to Home screen.</p>
             ) : (
               <p>
                 Chrome or Edge: the install icon at the right of the address bar.

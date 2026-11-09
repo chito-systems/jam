@@ -79,7 +79,21 @@ export function armAudio(): () => void {
 }
 
 /** Silent until audio is unlocked, and when sound is off. Never throws. */
+const inShell = () =>
+  typeof window !== 'undefined' && Boolean((window as Window & { webkit?: { messageHandlers?: { jam?: unknown } } }).webkit?.messageHandlers?.jam)
+
+/** Inside the JAM iPhone app, every chime is also felt: the native shell plays a haptic. */
+function haptic(name: ChimeName): void {
+  if (typeof window === 'undefined') return
+  const w = window as Window & { webkit?: { messageHandlers?: { jam?: { postMessage: (m: unknown) => void } } } }
+  w.webkit?.messageHandlers?.jam?.postMessage({ haptic: name })
+}
+
 export function playChime(name: ChimeName): void {
+  haptic(name)
+  // In the iPhone app the haptic is the chime: page audio playing while the mic opens
+  // fights iOS for the audio session and can stall or silence the recording.
+  if (inShell()) return
   const c = ctx
   if (c?.state !== 'running' || !soundOn()) return
   try {
