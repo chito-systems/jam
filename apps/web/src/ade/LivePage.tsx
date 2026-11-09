@@ -8,7 +8,7 @@ import { agentMode, foldGone, groupAgents, ownerLabel, shortName } from './agent
 import { armAudio, playChime, setSound, soundOn } from './chime'
 import type { RunState } from './data'
 import { Guide, guideSeen, HelpIcon } from './Guide'
-import { addNote, agentName, ago, captainsOf, clock, decisionLogUrl, formatMs, type Identity, isAgent, itemNewer, type Live, loadIdentity, loadOwnership, loadRecent, type Member, member, memberLine, mergeSaid, newlyDone, pct, pendingCaptures, roster, sameWho, saveIdentity, searchBrain, setVerdict, threadFor, useLive } from './live'
+import { addNote, agentName, ago, captainsOf, clock, decisionLogUrl, formatMs, type Identity, isAgent, itemNewer, type Live, loadIdentity, loadOwnership, loadRecent, type Member, member, mergeSaid, newlyDone, pct, pendingCaptures, roster, sameWho, saveIdentity, searchBrain, setVerdict, threadFor, useLive } from './live'
 import { Mark, type MarkMode, ThemeCtx } from './Mark'
 import { orderFor, proposedOrders, setChaos, workTasks } from './orders'
 import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, useTheme } from './parts'
@@ -16,12 +16,16 @@ import { type Outgoing, Talk } from './Talk'
 import { Terminal } from './Terminal'
 import { TabStrip, TermStack, useTermTabs } from './TermTabs'
 import { clampPanel, loadPanelHeight, savePanelHeight } from './term'
-import { OrderStrip, WorkOrder } from './WorkOrder'
+import { WorkOrder } from './WorkOrder'
+import { JamView } from './JamView'
+import { assignedOrders, myAgents, needsHuman, personNow, railPeople, unregistered } from './rail'
 
 // The ADE on real data. The API has tasks, brain entries, captures and stats; it has no
 // agent transcripts yet, so a "session" here is a task claim and what the brain holds about it.
 
 const FEED = 'feed'
+/** The jam view: what the shared librarian proposed, needs confirmed, and assigned. */
+const JAM = 'jam'
 /** activeId for a person from the people list: `person:<who>`. */
 const PERSON = 'person:'
 const TASK_STATE: Record<TaskDoc['status'], RunState> = { proposed: 'needs_input', claimed: 'running', done: 'done', released: 'cancelled' }
@@ -48,7 +52,6 @@ const seen = (iso: string, now: number) => {
   const a = ago(iso, now)
   return a === 'now' ? 'just now' : `${a} ago`
 }
-const NO_AGENTS_CMD = './scripts/jam-agent.sh cam-opus-1'
 
 export function LivePage() {
   const { theme, flip } = useTheme()
@@ -241,6 +244,12 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
   const members = useMemo(() => roster(live.stats?.by_who ?? {}, live.tasks, live.docs, captains, live.agents), [live.stats, live.tasks, live.docs, captains, live.agents])
   const person = activeId.startsWith(PERSON) ? members.find((m) => !isAgent(m.who) && sameWho(m.who, activeId.slice(PERSON.length))) : undefined
   const agent = known.get(activeId)
+  const isJam = activeId === JAM
+  const pending = useMemo(() => needsHuman(live.items), [live.items])
+  const assigned = useMemo(() => assignedOrders(live.tasks), [live.tasks])
+  const mine = useMemo(() => myAgents(live.agents, id.who), [live.agents, id.who])
+  const waitingTabs = term.list.filter((s) => s.agentName && unregistered([s.agentName], live.agents).length)
+  const people = railPeople(crew.people)
   const shown = agent ? agent.claims : active ? [active] : open
   const fileCount = shown.reduce((n, t) => n + t.paths.length, 0)
 
@@ -276,31 +285,9 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
       </header>
 
       <nav className="left" aria-label="Tasks">
-        {orders.length > 0 && (
-          <>
-            <div className="sec sec-orders">
-              <span>PROPOSED BY JAM</span>
-              <span>{orders.length} waiting</span>
-            </div>
-            <ul className="sessions orders-list">
-              {orders.map((t) => (
-                <li key={t.id}>
-                  <button type="button" className="session" aria-current={t.id === activeId} onClick={() => select(t.id)}>
-                    <Mark agent="jam" size={28} mode="waiting" />
-                    <span className="s-title">{t.title}</span>
-                    <span className="s-time">{ago(t.created_at, now)}</span>
-                    <span className="s-meta">
-                      <span className="s-flag s-needs_input">Proposed</span> · for {orderFor(t)}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
         <div className="sec">
-          <span>WORK</span>
-          <span>{open.length} working</span>
+          <span>SHARED</span>
+          <span />
         </div>
         <ul className="sessions">
           <li>
@@ -311,6 +298,20 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
               <span className="s-meta">Everything said, pasted and posted</span>
             </button>
           </li>
+          <li>
+            <button type="button" className="session" aria-current={activeId === JAM} onClick={() => select(JAM)}>
+              <Mark agent="jam" size={28} mode={orders.length || pending.length ? 'waiting' : undefined} />
+              <span className="s-title">jam</span>
+              <span className="s-time">{orders.length + pending.length > 0 && <span className="count">{orders.length + pending.length}</span>}</span>
+              <span className="s-meta">Sorts the feed: proposes, asks, assigns</span>
+            </button>
+          </li>
+        </ul>
+        <div className="sec">
+          <span>WORK</span>
+          <span>{open.length} working</span>
+        </div>
+        <ul className="sessions">
           {tasks.map((t) => (
             <li key={t.id}>
               <button type="button" className="session" aria-current={t.id === activeId} onClick={() => select(t.id)}>
@@ -324,10 +325,42 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
             </li>
           ))}
         </ul>
-        {live.status === 'ready' && !tasks.length && !orders.length && (
-          <p className="pane-empty">No task is claimed yet. An agent claims one with the task_claim tool, and it appears here.</p>
-        )}
-        <Crew crew={crew} members={members} agents={live.agents} activeId={activeId} now={now} onSelect={pick} />
+        {live.status === 'ready' && !tasks.length && <p className="pane-empty">No task is claimed yet. An agent claims one with the task_claim tool, and it appears here.</p>}
+        <div className="sec">
+          <span>YOUR AGENTS</span>
+          <span>{mine.length + waitingTabs.length || ''}</span>
+        </div>
+        <div className="crew">
+          <AgentRows agents={mine} activeId={activeId} now={now} onSelect={pick} />
+          {waitingTabs.length > 0 && (
+            <ul className="ags">
+              {waitingTabs.map((s) => (
+                <li key={s.id}>
+                  <button type="button" className="ag" aria-current={term.active === s.id} title={`${s.agentName} · starting in a terminal here`} onClick={() => term.show(s.id)}>
+                    <Mark agent={`agent:${s.agentName}`} size={18} mode="idle" />
+                    <span className="ag-name">{s.title}</span>
+                    <span className="ag-side">{s.side ?? ''}</span>
+                    <span className="a-dot a-idle" role="img" aria-label="starting" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {!mine.length && !waitingTabs.length && <p className="pane-empty">No agents of yours yet.</p>}
+          <button type="button" className="ag-more" disabled={term.full} onClick={() => term.newAgent()}>+ New agent</button>
+        </div>
+        <div className="sec">
+          <span>PEOPLE</span>
+          <span>{people.length || ''}</span>
+        </div>
+        <div className="crew">
+          {people.map((p) => {
+            const m = members.find((x) => !isAgent(x.who) && sameWho(x.who, p.human)) ?? member(p.human, [], [])
+            const n = p.agents.length
+            return <PersonRow key={p.human} who={p.human} line={`${personNow(m)}${n ? ` · ${n} ${n === 1 ? 'agent' : 'agents'}` : ''}`} active={activeId.startsWith(PERSON) && sameWho(activeId.slice(PERSON.length), p.human)} onSelect={select} />
+          })}
+          {!people.length && <p className="pane-empty">Nobody has said anything yet.</p>}
+        </div>
         <span className="grow" />
         <div className="left-foot"><kbd>j</kbd> <kbd>k</kbd> move between tasks</div>
       </nav>
@@ -336,7 +369,14 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
       <main className="center" data-term={term.active ? '' : undefined}>
         <TabStrip t={term} />
         <div className="path">
-          {person ? (
+          {isJam ? (
+            <>
+              <span className="t-title">jam</span>
+              <span>proposed <b>{orders.length}</b></span>
+              <span>needs a human <b>{pending.length}</b></span>
+              <span>assigned <b>{assigned.length}</b></span>
+            </>
+          ) : person ? (
             <>
               <span className="t-title">{person.who}</span>
               <span>side <b>{person.side ?? 'none yet'}</b></span>
@@ -377,8 +417,9 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
             </>
           )}
         </div>
-        {!active && !agent && !person && <OrderStrip orders={orders} now={now} onOpen={select} />}
-        {person ? (
+        {isJam ? (
+          <JamView orders={orders} pending={pending} assigned={assigned} now={now} owner={owner} onOpen={select} item={(i) => <ItemCard key={i.id} item={i} id={id} />} />
+        ) : person ? (
           <PersonView m={person} own={own} id={id} now={now} onSelect={select} owner={owner} />
         ) : agent ? (
           <AgentCard agent={agent} now={now} onSelect={select} onNewTerminal={term.full ? undefined : () => term.newAgent(agent.side === 'frontend' ? 'frontend' : 'backend')} />
@@ -387,7 +428,7 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
         ) : (
           <Thread live={live} task={active} id={id} outgoing={outgoing} now={now} onSignOut={onSignOut} />
         )}
-        {!proposed && !agent && !person && <NoteBox id={id} />}
+        {!proposed && !agent && !person && !isJam && <NoteBox id={id} />}
         <TermStack t={term} />
         <BottomPanel live={live} now={now} onSelect={select} />
       </main>
@@ -433,42 +474,6 @@ function Shell({ id, theme, flip, onSignOut }: { id: Identity; theme: 'light' | 
 }
 
 // ---------- people and agents: who is who ----------
-
-type CrewProps = { crew: ReturnType<typeof groupAgents>; members: Member[]; agents: AgentDoc[]; activeId: string; now: number; onSelect: (id: string) => void }
-
-function Crew({ crew, members, agents, activeId, now, onSelect }: CrewProps) {
-  const awake = agents.filter((a) => a.state === 'active').length
-  return (
-    <>
-      <div className="sec">
-        <span>PEOPLE AND AGENTS</span>
-        <span>{agents.length ? `${awake} active` : crew.people.length}</span>
-      </div>
-      <div className="crew">
-        {crew.people.map((p) => (
-          <div key={p.human}>
-            <PersonRow who={p.human} line={memberLine(members.find((x) => !isAgent(x.who) && sameWho(x.who, p.human)) ?? member(p.human, [], []))} active={activeId.startsWith(PERSON) && sameWho(activeId.slice(PERSON.length), p.human)} onSelect={onSelect} />
-            <AgentRows agents={p.agents} activeId={activeId} now={now} onSelect={onSelect} />
-          </div>
-        ))}
-        {crew.others.map(([who, n]) => (
-          <div key={who} className="hu">
-            <Mark agent={who} size={20} />
-            {agentName(who)}
-            <span className="s">{n} in brain</span>
-          </div>
-        ))}
-        {crew.unassigned.length > 0 && (
-          <div>
-            <div className="hu hu-quiet">unassigned</div>
-            <AgentRows agents={crew.unassigned} activeId={activeId} now={now} onSelect={onSelect} />
-          </div>
-        )}
-        {!agents.length && <p className="pane-empty">No agents connected. Start one with <code className="cmd-line">{NO_AGENTS_CMD}</code></p>}
-      </div>
-    </>
-  )
-}
 
 /** A person in the rail: opens what they hold, what jam assigned them and what they're in charge of. */
 function PersonRow({ who, line, active, onSelect }: { who: string; line: string; active: boolean; onSelect: (id: string) => void }) {
