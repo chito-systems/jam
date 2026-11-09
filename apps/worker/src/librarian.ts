@@ -2,6 +2,9 @@
 // Allowed to be wrong; never touches raw docs. Every item links back to the chunks it came from.
 import { type ItemDoc, ItemDocSchema, ItemKindSchema, type RawDoc, withSpan } from "@hh/shared";
 
+/** New items the model scores below this are dropped: a gap is better than a guess. */
+export const MIN_CONFIDENCE = 0.5;
+
 type FetchImpl = typeof fetch;
 
 export interface LibrarianInput {
@@ -36,6 +39,10 @@ Rules:
 - raw_ids: ids of the chunks the item came from, only ids from the provided chunks.
 - If a new statement reverses an existing item, return that existing item with existing_id set to its id and status "superseded", plus the new item. If a new statement completes an existing todo or answers an existing question, return the existing item with status "done". Otherwise existing_id is null and status is "open".
 - Do not repeat an existing item that is unchanged.
+- Never return a new item that says the same thing as an existing item, even in different words. Duplicates are worse than gaps.
+- A status update that merely mentions a past decision ("as decided earlier", "landed X like we said") is not a new decision.
+- An existing item with verdict "rejected" was judged wrong by a human: never extract it again.
+- confidence: how directly the quoted chunks support the item. 0.9 or more: someone explicitly said it. About 0.6: clearly implied. Below 0.5: a guess, and you should prefer returning nothing over a guess. For an existing item you return, score the new statement that changes it.
 - Small talk, jokes, complaints about the venue and filler produce nothing. An empty list is a good answer.
 - At most ${MAX_ITEMS} items.
 - tags: 1 to 3 short lowercase topic words (e.g. "search", "ui", "deploy").`;
@@ -55,7 +62,7 @@ const RESPONSE_FORMAT = {
           items: {
             type: "object",
             additionalProperties: false,
-            required: ["existing_id", "kind", "text", "who", "raw_ids", "tags", "status"],
+            required: ["existing_id", "kind", "text", "who", "raw_ids", "tags", "status", "confidence"],
             properties: {
               existing_id: { type: ["string", "null"] },
               kind: { type: "string", enum: KINDS },
@@ -64,6 +71,7 @@ const RESPONSE_FORMAT = {
               raw_ids: { type: "array", items: { type: "string" } },
               tags: { type: "array", items: { type: "string" } },
               status: { type: "string", enum: ["open", "done", "superseded"] },
+              confidence: { type: "number" },
             },
           },
         },
@@ -81,11 +89,19 @@ export interface ModelItem {
   raw_ids: string[];
   tags: string[];
   status: "open" | "done" | "superseded";
+  /** 0..1, the model's own score of how directly the chunks support the item. */
+  confidence: number;
 }
 
 export function buildUserMessage(input: LibrarianInput): string {
   const chunks = input.docs.map((d) => ({ id: d.id, who: d.who, at: d.at, text: d.text }));
-  const existing = input.recent.map((i) => ({ id: i.id, kind: i.kind, status: i.status, text: i.text }));
+  const existing = input.recent.map((i) => ({
+    id: i.id,
+    kind: i.kind,
+    status: i.status,
+    text: i.text,
+    ...(i.verdict ? { verdict: i.verdict } : {}),
+  }));
   return `Existing items (newest first):\n${JSON.stringify(existing)}\n\nNew chunks:\n${JSON.stringify(chunks)}`;
 }
 
@@ -111,13 +127,22 @@ export function parseModelOutput(content: string): ModelItem[] {
       typeof it.who === "string" &&
       isStringArray(it.raw_ids) &&
       isStringArray(it.tags) &&
-      (it.status === "open" || it.status === "done" || it.status === "superseded");
+      (it.status === "open" || it.status === "done" || it.status === "superseded") &&
+      typeof it.confidence === "number" &&
+      Number.isFinite(it.confidence);
     if (!ok) throw new Error(`librarian: malformed item ${i}: ${JSON.stringify(raw).slice(0, 200)}`);
-    return { ...it, existing_id: it.existing_id ?? null } as ModelItem;
+    const confidence = Math.min(1, Math.max(0, it.confidence as number));
+    return { ...it, existing_id: it.existing_id ?? null, confidence } as ModelItem;
   });
 }
 
-/** Turns model output into valid ItemDocs. Drops unknown raw_ids and items left without provenance. */
+const sameText = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * Turns model output into valid ItemDocs. Drops unknown raw_ids, items left without provenance,
+ * low-confidence guesses, and new items that repeat an existing one word for word.
+ * An existing item keeps everything but its status: a human verdict is never overwritten.
+ */
 export function mapItems(
   modelItems: ModelItem[],
   input: LibrarianInput,
@@ -125,14 +150,17 @@ export function mapItems(
 ): ItemDoc[] {
   const byId = new Map(input.docs.map((d) => [d.id, d]));
   const recent = new Map(input.recent.map((i) => [i.id, i]));
+  const known = new Set(input.recent.map((i) => sameText(i.text)));
   const out: ItemDoc[] = [];
   for (const m of modelItems) {
     const existing = m.existing_id ? recent.get(m.existing_id) : undefined;
-    if (existing && m.status !== "open") {
-      // Update the existing item in place (same id); its provenance stays as it was.
-      out.push(ItemDocSchema.parse({ ...existing, status: m.status }));
+    if (existing) {
+      // Update in place (same id); provenance, confidence and any verdict stay as they were.
+      // An existing id returned as "open" is an unchanged repeat: nothing to do.
+      if (m.status !== "open") out.push(ItemDocSchema.parse({ ...existing, status: m.status }));
       continue;
     }
+    if (m.confidence < MIN_CONFIDENCE || known.has(sameText(m.text))) continue;
     const raw_ids = [...new Set(m.raw_ids)].filter((id) => byId.has(id));
     const first = byId.get(raw_ids[0] ?? "");
     const text = m.text.trim();
@@ -148,8 +176,11 @@ export function mapItems(
       tags: [...new Set(m.tags.map((t) => t.trim().toLowerCase()).filter(Boolean))].slice(0, 3),
       raw_ids,
       status: m.status === "superseded" ? "open" : m.status,
+      confidence: Math.round(m.confidence * 100) / 100,
     });
-    if (parsed.success) out.push(parsed.data);
+    if (!parsed.success) continue;
+    out.push(parsed.data);
+    known.add(sameText(text));
   }
   return out.slice(0, MAX_ITEMS * 2); // new items plus the existing ones they supersede
 }

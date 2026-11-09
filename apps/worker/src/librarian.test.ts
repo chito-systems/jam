@@ -33,6 +33,7 @@ const m = (over: Partial<ModelItem>): ModelItem => ({
   raw_ids: ["c1:1"],
   tags: ["Search"],
   status: "open",
+  confidence: 0.9,
   ...over,
 });
 
@@ -65,6 +66,34 @@ describe("mapItems", () => {
     expect(items[0]).toEqual({ ...old, status: "superseded" });
     expect(items[1]?.id).not.toBe("old-1");
   });
+
+  it("carries confidence and drops new items below 0.5", () => {
+    const items = mapItems([m({ confidence: 0.82 }), m({ text: "A guess.", confidence: 0.4 })], input);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.confidence).toBe(0.82);
+  });
+
+  it("drops a new item that repeats an existing or earlier one, and ignores unchanged existing ids", () => {
+    const items = mapItems(
+      [
+        m({ text: "the team will use  POSTGRES" }),
+        m({ existing_id: "old-1", status: "open" }),
+        m({}),
+        m({ text: "The team will use Elasticsearch!" }),
+      ],
+      input,
+    );
+    expect(items.map((i) => i.text)).toEqual(["The team will use Elasticsearch."]);
+  });
+
+  it("never overwrites a human verdict when superseding or closing an existing item", () => {
+    const verified = { ...old, verdict: "confirmed" as const, verified_by: "jake", verified_at: old.at, confidence: 0.95 };
+    const [item] = mapItems([m({ existing_id: "old-1", status: "superseded", confidence: 0.3 })], {
+      ...input,
+      recent: [verified],
+    });
+    expect(item).toEqual({ ...verified, status: "superseded" });
+  });
 });
 
 describe("OpenAILibrarian", () => {
@@ -79,6 +108,16 @@ describe("OpenAILibrarian", () => {
     expect(sent.model).toBe("test-model");
     expect(sent.response_format.type).toBe("json_schema");
     expect(sent.messages[1].content).toContain("c1:0");
+    expect(sent.response_format.json_schema.schema.properties.items.items.required).toContain("confidence");
+    expect(sent.messages[0].content).toMatch(/Duplicates are worse than gaps/);
+    expect(sent.messages[0].content).toMatch(/status update that merely mentions a past decision/);
+    expect(items[0]?.confidence).toBe(0.9);
+  });
+
+  it("rejects model items without a numeric confidence", async () => {
+    const { confidence: _drop, ...noConf } = m({ raw_ids: ["c1:0"] });
+    const lib = new OpenAILibrarian({ apiKey: KEY, fetchImpl: fakeFetch(200, JSON.stringify({ items: [noConf] })).impl });
+    await expect(lib.extract(input)).rejects.toThrow(/malformed item 0/);
   });
 
   it("throws a clear error on malformed model output", async () => {
