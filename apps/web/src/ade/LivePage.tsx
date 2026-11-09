@@ -11,6 +11,8 @@ import { Mark, type MarkMode, ThemeCtx } from './Mark'
 import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, useTheme } from './parts'
 import { Guide, guideSeen, HelpIcon } from './Guide'
 import { type Outgoing, Talk } from './Talk'
+import { clampPanel, loadPanelHeight, savePanelHeight } from './term'
+import { Terminal } from './Terminal'
 
 // The ADE on real data. The API has tasks, brain entries, captures and stats; it has no
 // agent transcripts yet, so a "session" here is a task claim and what the brain holds about it.
@@ -477,19 +479,45 @@ function NoteBox({ id }: { id: Identity }) {
 // ---------- bottom panel ----------
 
 function BottomPanel({ live, now, onSelect }: { live: Live; now: number; onSelect: (id: string) => void }) {
-  const [tab, setTab] = useState<'claims' | 'captures'>('claims')
+  const [tab, setTab] = useState<'claims' | 'captures' | 'terminal'>('claims')
   const [shut, setShut] = useState(false)
+  const [termOn, setTermOn] = useState(false)
+  const [height, setHeight] = useState(loadPanelHeight)
   const claims = live.tasks.filter((t) => t.status === 'claimed')
+  const open = (t: typeof tab) => {
+    setTab(t)
+    setShut(false)
+    if (t === 'terminal') setTermOn(true)
+  }
+  const grip = (e: ReactPointerEvent) => {
+    e.preventDefault()
+    const startY = e.clientY
+    let h = height
+    const move = (m: PointerEvent) => {
+      h = clampPanel(height + startY - m.clientY, window.innerHeight)
+      setHeight(h)
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      savePanelHeight(h)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
   return (
-    <section className={shut ? 'panel shut' : 'panel'}>
+    <section className={shut ? 'panel shut' : 'panel'} style={{ '--panel-h': `${height}px` } as CSSProperties}>
+      {!shut && <div className="panel-grip" title="Drag to resize" onPointerDown={grip} />}
       <div className="ptabs" role="tablist">
-        <button type="button" role="tab" aria-selected={tab === 'claims'} onClick={() => { setTab('claims'); setShut(false) }}>Open claims</button>
-        <button type="button" role="tab" aria-selected={tab === 'captures'} onClick={() => { setTab('captures'); setShut(false) }}>Captures</button>
+        <button type="button" role="tab" aria-selected={tab === 'claims'} onClick={() => open('claims')}>Open claims</button>
+        <button type="button" role="tab" aria-selected={tab === 'captures'} onClick={() => open('captures')}>Captures</button>
+        <button type="button" role="tab" aria-selected={tab === 'terminal'} onClick={() => open('terminal')}>Terminal</button>
         <button type="button" className="collapse" aria-label={shut ? 'Open panel' : 'Close panel'} onClick={() => setShut(!shut)}>
           {shut ? '▴' : '▾'}
         </button>
       </div>
-      {!shut && (
+      {termOn && <Terminal visible={!shut && tab === 'terminal'} />}
+      {!shut && tab !== 'terminal' && (
         <div className="panel-body">
           {tab === 'claims' &&
             (claims.length ? (
