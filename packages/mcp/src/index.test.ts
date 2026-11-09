@@ -64,7 +64,7 @@ describe("handleMcpRequest", () => {
     expect(body.result.serverInfo.name).toBe("hack-harness-context");
   });
 
-  it("lists the seven tools", async () => {
+  it("lists the eight tools", async () => {
     const { post } = setup();
     const body = await (await post("tools/list", {})).json();
     const names = body.result.tools.map((t: { name: string }) => t.name).sort();
@@ -73,6 +73,7 @@ describe("handleMcpRequest", () => {
       "context_decisions",
       "context_recent",
       "context_search",
+      "item_verdict",
       "task_claim",
       "task_done",
       "task_list",
@@ -102,6 +103,34 @@ describe("handleMcpRequest", () => {
     const res = await call("context_decisions", {});
     expect(res.isError).toBeFalsy();
     expect(res.text).toMatch(/No extracted decisions yet.*"decided"/);
+  });
+
+  it("context_decisions grades each line and omits rejected decisions", async () => {
+    const { store, call } = setup();
+    const base = { team_id: "t1", kind: "decision" as const, who: "cam", tags: [], raw_ids: [], status: "open" as const };
+    await store.indexItems([
+      { ...base, id: "d1", text: "Name is JAM.", at: "2026-11-09T19:00:00.000Z", verdict: "confirmed", verified_by: "jake" },
+      { ...base, id: "d2", text: "Deploy with Argo.", at: "2026-11-09T19:01:00.000Z", confidence: 0.82 },
+      { ...base, id: "d3", text: "Cluster team is JAM.", at: "2026-11-09T19:02:00.000Z", verdict: "rejected" },
+    ]);
+    const res = await call("context_decisions", {});
+    expect(res.text).toContain("[confirmed] 2026-11-09T19:00:00.000Z cam [decision] d1");
+    expect(res.text).toContain("[unconfirmed 0.82] 2026-11-09T19:01:00.000Z");
+    expect(res.text).not.toContain("Cluster team");
+  });
+
+  it("item_verdict confirms or rejects as agent:<who>, publishes, and errors on unknown ids", async () => {
+    const { store, call, published } = setup();
+    await store.indexItems([
+      { team_id: "t1", id: "d1", kind: "decision", text: "Name is JAM.", who: "cam", at: "2026-11-09T19:00:00.000Z", tags: [], raw_ids: [], status: "open" },
+    ]);
+    const res = await call("item_verdict", { id: "d1", verdict: "rejected" });
+    expect(res.isError).toBeFalsy();
+    expect(res.text).toContain("rejected by agent:opus-1");
+    const stored = await store.itemById("t1", "d1");
+    expect(stored).toMatchObject({ verdict: "rejected", verified_by: "agent:opus-1" });
+    expect(published).toEqual([{ event: "item", data: stored }]);
+    expect((await call("item_verdict", { id: "d1", verdict: "confirmed" }, "team_id=t2&who=x")).isError).toBe(true);
   });
 
   it("returns a tool error, not a 500, when the store throws", async () => {

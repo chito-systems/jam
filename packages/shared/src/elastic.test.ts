@@ -336,3 +336,42 @@ describe("createStoreFromEnv", () => {
     expect(() => createStoreFromEnv({ STORE: "postgres" })).toThrow();
   });
 });
+
+describe("grading", () => {
+  it("maps confidence/verdict fields and put-maps them onto an existing items index", async () => {
+    const exists = Object.assign(new Error("exists"), {
+      meta: { body: { error: { type: "resource_already_exists_exception" } } },
+    });
+    const client = fakeClient();
+    client.indices.create.mockResolvedValueOnce({}).mockRejectedValueOnce(exists);
+    await new ElasticStore(client, opts).ensureReady();
+    const put = client.indices.putMapping.mock.calls[0]?.[0];
+    expect(put?.index).toBe("items_x");
+    expect(put?.properties?.confidence).toEqual({ type: "float" });
+    expect(put?.properties?.verdict).toEqual({ type: "keyword" });
+    expect(put?.properties?.verified_by).toEqual({ type: "keyword" });
+    expect(put?.properties?.verified_at).toEqual({ type: "date" });
+  });
+
+  it("filters items by verdict and fetches one item by team + id", async () => {
+    const client = fakeClient();
+    client.search.mockResolvedValue(searchRes([{ _index: "items_x", _source: { ...item, verdict: "confirmed" } }]));
+    const store = new ElasticStore(client, opts);
+    await store.items({ team_id: "t1", verdict: "confirmed", limit: 5 });
+    expect(JSON.stringify(client.search.mock.calls[0]?.[0].query)).toContain('{"term":{"verdict":"confirmed"}}');
+    expect(await store.itemById("t1", "i1")).toMatchObject({ id: "i1", verdict: "confirmed" });
+    expect(client.search.mock.calls[1]?.[0].query).toEqual({
+      bool: { filter: [{ term: { team_id: "t1" } }, { term: { id: "i1" } }] },
+    });
+    client.search.mockResolvedValue(searchRes([]));
+    expect(await store.itemById("t1", "nope")).toBeUndefined();
+  });
+
+  it("MemoryStore filters by verdict and scopes itemById to the team", async () => {
+    const store = new MemoryStore();
+    await store.indexItems([item, { ...item, id: "i2", verdict: "rejected" }]);
+    expect((await store.items({ team_id: "t1", verdict: "rejected", limit: 5 })).map((i) => i.id)).toEqual(["i2"]);
+    expect(await store.itemById("t1", "i2")).toMatchObject({ verdict: "rejected" });
+    expect(await store.itemById("t2", "i2")).toBeUndefined();
+  });
+});

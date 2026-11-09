@@ -82,7 +82,7 @@ describe("GET /api/decisions.md", () => {
     expect(res.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
     expect(md).toContain("# Decision log — t1");
     expect(md).toContain("_Generated 2026-11-09 14:05 MT");
-    expect(md).toContain("**3 decisions** · 1 superseded");
+    expect(md).toContain("**3 decisions** · 0 confirmed · 1 superseded · 0 rejected and hidden");
     const order = ["Run everything", "Use the merge queue", "Ship the README"].map((s) => md.indexOf(s));
     expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(md).toContain("## 1:42 PM — Use the merge queue for every PR.");
@@ -185,5 +185,28 @@ describe("GET /api/decisions.md", () => {
     expect(res.status).toBe(200);
     expect(md).toContain("No decisions captured yet.");
     expect(md).not.toContain("**0 decisions**");
+  });
+
+  it("hides rejected items, counts them, and shows who confirmed or how sure the librarian was", async () => {
+    const at = "2026-11-09T20:00:00.000Z";
+    const { md } = await (
+      await setup(
+        [],
+        [
+          item("ok", "Use JAM as the name.", at, { verdict: "confirmed", verified_by: "jake", confidence: 0.95 }),
+          item("maybe", "Deploy with Argo.", at, { confidence: 0.82 }),
+          item("bare", "Ship by five.", at),
+          item("no", "The cluster team is JAM.", at, { verdict: "rejected", verified_by: "cam" }),
+          item("q", "A rejected question?", at, { kind: "question", verdict: "rejected" }),
+        ],
+      )
+    ).get("?team_id=t1&kinds=question");
+    expect(md).toContain("**3 decisions** · 1 confirmed · 0 superseded · 1 rejected and hidden");
+    expect(md).toContain("Decided by **cam** · confirmed by **jake**");
+    expect(md).toContain("Decided by **cam** · unconfirmed (librarian confidence 0.82)");
+    expect(md).toMatch(/Ship by five\.\nDecided by \*\*cam\*\*\n/);
+    expect(md).not.toContain("The cluster team is JAM");
+    expect(md).not.toContain("A rejected question");
+    expect(md).toContain("## Open questions (0)");
   });
 });
