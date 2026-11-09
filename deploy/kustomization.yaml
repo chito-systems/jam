@@ -12,4 +12,4 @@ resources:
 images:
   - name: app
     newName: ghcr.io/chito-systems/jam
-    newTag: "e7e145f"
+    newTag: "d90b0db"
