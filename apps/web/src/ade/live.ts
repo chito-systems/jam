@@ -1,6 +1,8 @@
 // The live data layer: everything the ADE shows on main comes from the API through here.
 // Types only from @hh/shared: a value import would pull the Elasticsearch client into the bundle.
 import type {
+  AgentDoc,
+  AgentsResponse,
   CaptureStatus,
   ChaosState,
   IngestResponse,
@@ -17,6 +19,7 @@ import type {
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 const VENUE_TZ = 'America/Denver'
+const AGENTS_EVERY_MS = 10_000
 
 // ---------- pure helpers (tested in live.test.ts) ----------
 
@@ -214,6 +217,8 @@ export type Live = {
   docs: RawDoc[]
   captures: CaptureStatus[]
   stats?: StatsResponse
+  /** Every coding agent seen on the team, from GET /api/agents. A failed refresh keeps the last list. */
+  agents: AgentDoc[]
   reload: () => void
   /** Puts a task we got back from a POST, so the page moves before the SSE event lands. */
   putTask: (t: TaskDoc) => void
@@ -231,6 +236,7 @@ export function useLive(team: string | undefined): Live {
   const [docs, setDocs] = useState<RawDoc[]>([])
   const [captures, setCaptures] = useState<CaptureStatus[]>([])
   const [stats, setStats] = useState<StatsResponse>()
+  const [agents, setAgents] = useState<AgentDoc[]>([])
   const [attempt, setAttempt] = useState(0)
   const statsTimer = useRef(0)
   const statusRef = useRef(status)
@@ -256,6 +262,14 @@ export function useLive(team: string | undefined): Live {
       getJson<StatsResponse>('/api/stats', { team_id: team })
         .then((s) => !dead && setStats(s))
         .catch((e: unknown) => console.error('stats refresh failed', e))
+
+    // Presence moves without feed events (an agent going idle), so poll it; a failure keeps the last list.
+    const loadAgents = () =>
+      getJson<AgentsResponse>('/api/agents', { team_id: team })
+        .then((a) => !dead && setAgents(a.agents))
+        .catch((e: unknown) => console.error('agents refresh failed', e))
+    loadAgents()
+    const agentsTimer = window.setInterval(loadAgents, AGENTS_EVERY_MS)
 
     // Merges into what the stream already delivered, so an event that lands mid-load is kept.
     const loadBaseline = (silent: boolean) => {
@@ -328,6 +342,7 @@ export function useLive(team: string | undefined): Live {
     on<TaskDoc>('task', (d) => {
       setTasks((list) => upsert(list, d, (x) => x.created_at))
       statsSoon()
+      loadAgents()
     })
     on<CaptureStatus>('capture', (c) => {
       setCaptures((list) => [c, ...list.filter((x) => x.capture_id !== c.capture_id)].slice(0, 50))
@@ -338,9 +353,10 @@ export function useLive(team: string | undefined): Live {
       dead = true
       es.close()
       window.clearTimeout(retry)
+      window.clearInterval(agentsTimer)
       window.clearTimeout(statsTimer.current)
     }
   }, [team, attempt, putChaos])
 
-  return { status, error, conn, tasks, items, docs, captures, stats, reload, putTask, putChaos }
+  return { status, error, conn, tasks, items, docs, captures, stats, agents, reload, putTask, putChaos }
 }
