@@ -1,6 +1,6 @@
 # PROJECT.md — Hack Harness (ADE)
 
-Read AGENTS.md first, then this, then NOW.md. This file holds the problem, the architecture decisions, and the build order. Decisions here are made; don't relitigate them in a PR.
+Read AGENTS.md first, then this. This file holds the problem, the architecture decisions, and the build order. Decisions here are made; don't relitigate them in a PR.
 
 These decisions were made by Cam and Jake before code was written. The plan below is kept as written that morning; what changed during the day:
 - **Merge path** is PR → Gitar → CI → merge. GitHub's merge queue is not offered on a personally-owned repository.
