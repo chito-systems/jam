@@ -57,9 +57,13 @@ const seen = (iso: string, now: number) => {
   return a === 'now' ? 'just now' : `${a} ago`
 }
 
+/** The team that built JAM. Its workspace is the public demo, open to guests without a code. */
+const DEMO_TEAM = 'hh'
+
 export function LivePage() {
   const { theme, mode, flip, setMode } = useTheme()
-  const [id, setId] = useState<Identity | null>(loadIdentity)
+  // No code needed on a first visit: a new browser opens the JAM team's workspace as a guest.
+  const [id, setId] = useState<Identity | null>(() => loadIdentity() ?? saveIdentity(DEMO_TEAM, 'guest'))
   const phone = usePhone()
   // The load-in plays on every launch and lifts once the workspace has its data (at once on sign-in).
   const [intro, setIntro] = useState(true)
@@ -118,6 +122,10 @@ function Join({ onJoin }: { onJoin: (id: Identity) => void }) {
         <button type="submit" className="btn primary" disabled={!team.trim() || !who.trim()}>
           Open the workspace
         </button>
+        <button type="button" className="btn" onClick={() => onJoin(saveIdentity(DEMO_TEAM, 'guest'))}>
+          Look around as a guest
+        </button>
+        <p className="dim join-note">Opens the workspace of the team that built JAM. It is live, so what you add is real.</p>
       </form>
     </div>
   )
