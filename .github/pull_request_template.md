@@ -2,7 +2,7 @@
 One sentence.
 
 ## Why
-One sentence. Link the `NOW.md` item if there is one.
+One sentence.
 
 ## How to verify
 - [ ] Step a reviewer or judge can follow
