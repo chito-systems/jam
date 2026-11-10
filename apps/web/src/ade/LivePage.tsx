@@ -57,9 +57,13 @@ const seen = (iso: string, now: number) => {
   return a === 'now' ? 'just now' : `${a} ago`
 }
 
+/** The team that built JAM. Its workspace is the public demo, open to guests without a code. */
+const DEMO_TEAM = 'hh'
+
 export function LivePage() {
   const { theme, mode, flip, setMode } = useTheme()
-  const [id, setId] = useState<Identity | null>(loadIdentity)
+  // No code needed on a first visit: a new browser opens the JAM team's workspace as a guest.
+  const [id, setId] = useState<Identity | null>(() => loadIdentity() ?? saveIdentity(DEMO_TEAM, 'guest'))
   const phone = usePhone()
   // The load-in plays on every launch and lifts once the workspace has its data (at once on sign-in).
   const [intro, setIntro] = useState(true)
@@ -91,9 +95,6 @@ function PhoneApp({ id, onSignOut, onLoaded }: { id: Identity; onSignOut: () => 
 }
 
 // ---------- identity ----------
-
-/** The team that built JAM. Its workspace is the public demo: a guest opens it in one click. */
-const DEMO_TEAM = 'hh'
 
 function Join({ onJoin }: { onJoin: (id: Identity) => void }) {
   const [team, setTeam] = useState('')
