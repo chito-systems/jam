@@ -53,7 +53,7 @@ async function micPermission(): Promise<Mic> {
   }
 }
 
-async function bridgeUp(): Promise<Bridge> {
+export async function bridgeUp(): Promise<Bridge> {
   const ctl = new AbortController()
   const t = window.setTimeout(() => ctl.abort(), 1500)
   try {

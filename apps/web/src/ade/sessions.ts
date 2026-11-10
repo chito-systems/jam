@@ -1,6 +1,26 @@
 // Terminal tabs in the centre pane: pure logic (tested in sessions.test.ts).
 
 export type Side = 'backend' | 'frontend'
+const SIDE_KEY = 'jam-side'
+
+/** The side "+ New agent" starts on, from Settings. Backend when nothing is saved or storage is blocked. */
+export function loadSide(): Side {
+  try {
+    return localStorage.getItem(SIDE_KEY) === 'frontend' ? 'frontend' : 'backend'
+  } catch (e) {
+    console.warn('reading jam-side from localStorage failed; new agents start on backend', e)
+    return 'backend'
+  }
+}
+
+export function saveSide(side: Side): void {
+  try {
+    localStorage.setItem(SIDE_KEY, side)
+  } catch (e) {
+    console.warn('saving jam-side to localStorage failed; the side applies until reload', e)
+  }
+}
+
 export type Session = { id: string; title: string; kind: 'agent' | 'shell'; agentName?: string; side?: Side; run?: string }
 export type Tabs = { list: Session[]; active: string | null }
 export type TabAction = { t: 'add'; s: Session } | { t: 'close'; id: string } | { t: 'show'; id: string | null }

@@ -13,7 +13,7 @@ import { addNote, AGENTS_EVERY_MS, agentName, ago, captainsOf, clock, decisionLo
 import { Mark, type MarkMode, ThemeCtx } from './Mark'
 import { orderFor, proposedOrders, setChaos, workTasks } from './orders'
 import { Intro } from './Intro'
-import { type Command, FreezeClock, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, usePhone, useTheme } from './parts'
+import { type Command, FreezeClock, GearIcon, MenuIcon, Palette, PaneIcon, Prose, SoundIcon, StatusGlyph, ThemeIcon, type ThemeMode, usePhone, useTheme } from './parts'
 import { FunMode } from './FunMode'
 import { type Outgoing, Talk } from './Talk'
 import { type ShipRow, shipHeader, shipRows } from './ship'
@@ -21,6 +21,8 @@ import { TabStrip, TermStack, useTermTabs } from './TermTabs'
 import { clampPanel, loadPanelHeight, savePanelHeight } from './term'
 import { WorkOrder } from './WorkOrder'
 import { JamView } from './JamView'
+import { CheatSheet, Settings } from './Settings'
+import { keysFor, modsOff, step, typingIn } from './shortcuts'
 import { assignedOrders, myAgents, needsHuman, personNow, railPeople, unregistered } from './rail'
 
 // The ADE on real data. The API has tasks, brain entries, captures and stats; it has no
@@ -56,7 +58,7 @@ const seen = (iso: string, now: number) => {
 }
 
 export function LivePage() {
-  const { theme, flip } = useTheme()
+  const { theme, mode, flip, setMode } = useTheme()
   const [id, setId] = useState<Identity | null>(loadIdentity)
   const phone = usePhone()
   // The load-in plays on every launch and lifts once the workspace has its data (at once on sign-in).
@@ -71,7 +73,7 @@ export function LivePage() {
       ) : phone ? (
         <PhoneApp id={id} onSignOut={signOut} onLoaded={onLoaded} />
       ) : (
-        <Shell id={id} theme={theme} flip={flip} onSignOut={signOut} onLoaded={onLoaded} />
+        <Shell id={id} theme={theme} mode={mode} setMode={setMode} flip={flip} onIdentity={setId} onSignOut={signOut} onLoaded={onLoaded} />
       )}
       {/* The phone boots straight to the companion: no canvas load-in on a phone's first second. */}
       {intro && !phone && <Intro ready={!id || loaded} onDone={() => setIntro(false)} />}
@@ -123,7 +125,9 @@ function Join({ onJoin }: { onJoin: (id: Identity) => void }) {
 
 // ---------- shell ----------
 
-function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 'light' | 'dark'; flip: () => void; onSignOut: () => void; onLoaded: () => void }) {
+type ShellProps = { id: Identity; theme: 'light' | 'dark'; mode: ThemeMode; setMode: (m: ThemeMode) => void; flip: () => void; onIdentity: (id: Identity) => void; onSignOut: () => void; onLoaded: () => void }
+
+function Shell({ id, theme, mode, setMode, flip, onIdentity, onSignOut, onLoaded }: ShellProps) {
   const live = useLive(id.team)
   useEffect(() => {
     if (live.status !== 'loading') onLoaded()
@@ -131,6 +135,9 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
   const [activeId, setActiveId] = useState(FEED)
   const [tab, setTab] = useState<RightTab>('ship')
   const [palette, setPalette] = useState(false)
+  const [settings, setSettings] = useState(false)
+  const [cheat, setCheat] = useState(false)
+  const pendingG = useRef<number | null>(null)
   const [guide, setGuide] = useState(() => !guideSeen())
   const [widths, setWidths] = useState({ left: 256, right: 340 })
   const [side, setSide] = useState<'none' | 'left' | 'right'>('none')
@@ -196,31 +203,76 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
     setSide('right')
   }, [])
 
+  const focusSearch = useCallback(() => {
+    show('ship')
+    window.setTimeout(() => document.querySelector<HTMLInputElement>('.ade .search input')?.focus(), 0)
+  }, [show])
+  const openLog = useCallback(() => window.open(decisionLogUrl(id.team), '_blank', 'noopener'), [id.team])
+  const goShip = useCallback(() => {
+    show('ship')
+    window.setTimeout(() => document.querySelector<HTMLButtonElement>('.ade .right .tabs [role="tab"]')?.focus(), 0)
+  }, [show])
+
+  // Every shortcut lives in shortcuts.ts; this only maps its actions onto the page.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (guide) return
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if (guide || e.defaultPrevented) return
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && !e.altKey && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPalette((p) => !p)
         return
       }
-      if (palette) return
-      const el = e.target as HTMLElement
-      if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === '/') {
+      if (mod && !e.altKey && e.key === ',') {
         e.preventDefault()
-        show('ship')
-        window.setTimeout(() => document.querySelector<HTMLInputElement>('.ade .search input')?.focus(), 0)
+        setPalette(false)
+        setCheat(false)
+        setSettings(true)
+        return
       }
+      if (palette) return
+      const el = e.target as HTMLElement | null
+      if (el?.closest?.('.xterm, .fun-win')) return
+      if (e.key === 'Escape' && (settings || cheat)) return // the open sheet closes itself
+      if (settings || cheat || !modsOff(e) || typingIn(el)) return
       if (e.key === 'j' || e.key === 'k') {
-        const i = order.indexOf(activeId)
-        const next = order[Math.min(order.length - 1, Math.max(0, i + (e.key === 'j' ? 1 : -1)))]
-        if (next) select(next)
+        if (pendingG.current === null || Date.now() - pendingG.current > 1000) {
+          const i = order.indexOf(activeId)
+          const next = order[Math.min(order.length - 1, Math.max(0, i + (e.key === 'j' ? 1 : -1)))]
+          if (next) select(next)
+          return
+        }
+      }
+      const r = step(e.key, pendingG.current, Date.now())
+      pendingG.current = r.pending
+      if (!r.handled) return
+      e.preventDefault()
+      switch (r.action) {
+        case 'cheat': return setCheat(true)
+        case 'settings': return setSettings(true)
+        case 'feed': return select(FEED)
+        case 'jam': return select(JAM)
+        case 'ship': return goShip()
+        case 'decisions': return void openLog()
+        case 'shell': return term.full ? undefined : term.newShell()
+        case 'agent': return term.full ? undefined : term.newAgent()
+        case 'search': return focusSearch()
+        case 'tab': {
+          const n = (r.tab ?? 1) - 1
+          if (n === 0) return showTab(null)
+          const s = term.list[n - 1]
+          return s ? showTab(s.id) : undefined
+        }
+        case 'escape': {
+          const a = document.activeElement as HTMLElement | null
+          a?.blur()
+          return
+        }
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [activeId, order, palette, guide, select, show])
+  }, [activeId, order, palette, guide, settings, cheat, select, term, showTab, goShip, openLog, focusSearch])
 
   const drag = (which: 'left' | 'right') => (e: ReactPointerEvent) => {
     e.preventDefault()
@@ -241,11 +293,17 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
   const commands: Command[] = [
     { label: 'Open the capture page', hint: 'hold ⌥Space here', run: () => window.location.assign('/c') },
     { label: sound ? 'Turn sound off' : 'Turn sound on', run: toggleSound },
-    { label: 'Search the brain', hint: '/', run: () => show('ship') },
+    { label: 'Search the brain', keys: keysFor('search'), run: focusSearch },
+    { label: 'Settings', keys: '⌘,', run: () => setSettings(true) },
+    { label: 'Keyboard shortcuts', keys: keysFor('cheat'), run: () => setCheat(true) },
+    { label: 'jam view', keys: keysFor('jam'), run: () => select(JAM) },
+    { label: 'Ship pane', keys: keysFor('ship'), run: goShip },
+    { label: 'New shell tab', keys: keysFor('shell'), run: () => !term.full && term.newShell() },
+    { label: 'New agent tab', keys: keysFor('agent'), run: () => !term.full && term.newAgent() },
     { label: 'Show claimed files', run: () => show('files') },
-    { label: 'Open the decision log', hint: 'markdown', run: () => window.open(decisionLogUrl(id.team), '_blank', 'noopener') },
+    { label: 'Open the decision log', hint: 'markdown', keys: keysFor('decisions'), run: openLog },
     { label: live.stats?.chaos ? 'Turn chaos off' : 'Turn chaos on', hint: 'demo', run: () => setChaosAsk(live.stats?.chaos ? 'off' : 'on') },
-    { label: 'Team feed', run: () => select(FEED) },
+    { label: 'Team feed', keys: keysFor('feed'), run: () => select(FEED) },
     { label: theme === 'dark' ? 'Switch to light' : 'Switch to dark', run: flip },
     { label: 'Open the setup guide', run: () => setGuide(true) },
     { label: 'Change team or name', hint: `${id.team} · ${id.who}`, run: onSignOut },
@@ -307,6 +365,9 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
         </button>
         <button type="button" className="icon" aria-label="Open the setup guide" aria-haspopup="dialog" title="Setup guide" onClick={() => setGuide(true)}>
           <HelpIcon />
+        </button>
+        <button type="button" className="icon" aria-label="Settings" aria-haspopup="dialog" title="Settings (,)" onClick={() => setSettings(true)}>
+          <GearIcon />
         </button>
         <button type="button" className="icon only-narrow" aria-label="Brain pane" onClick={() => setSide(side === 'right' ? 'none' : 'right')}>
           <PaneIcon />
@@ -391,7 +452,7 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
           {!people.length && <p className="pane-empty">Nobody has said anything yet.</p>}
         </div>
         <span className="grow" />
-        <div className="left-foot"><kbd>j</kbd> <kbd>k</kbd> move between tasks</div>
+        <div className="left-foot"><kbd>j</kbd> <kbd>k</kbd> tasks <button type="button" className="text-btn" onClick={() => setCheat(true)}><kbd>?</kbd> all shortcuts</button></div>
       </nav>
       <div className="divider d-left" onPointerDown={drag('left')} />
 
@@ -495,6 +556,8 @@ function Shell({ id, theme, flip, onSignOut, onLoaded }: { id: Identity; theme: 
 
       {side !== 'none' && <button type="button" className="scrim" aria-label="Close pane" onClick={() => setSide('none')} />}
       {palette && <Palette commands={commands} onClose={() => setPalette(false)} />}
+      {settings && <Settings id={id} onIdentity={onIdentity} mode={mode} onMode={setMode} sound={sound} onSound={toggleSound} onClose={() => setSettings(false)} />}
+      {cheat && <CheatSheet onClose={() => setCheat(false)} />}
       {guide && <Guide id={id} live={live} onSignOut={onSignOut} onClose={() => setGuide(false)} />}
     </div>
     </NameCtx.Provider>
