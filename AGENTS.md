@@ -1,10 +1,10 @@
 # AGENTS.md — Hack Harness
 
-Rules for every coding agent and human in this repo. Read order: this file → PROJECT.md → NOW.md → Issue #2 (the Board). The pitch lives in PITCH.md. Keep this file short.
+Rules for every coding agent and human in this repo. Read order: this file → PROJECT.md → Issue #2 (the Board). Keep this file short.
 
 ## Context
 - Cloud Native Hackathon, Salt Lake City, 2026-11-09. Submission deadline **5:30 PM MT**. Freeze at 4:30.
-- We are building Hack Harness, an Agent Development Environment for hackathon teams: shared context brain (Elasticsearch), safe merging for humans + agents (PR → Gitar → CI → merge; no merge queue on a personally-owned repo). Live at https://jam.cnh.radarhq.io, focus-first interface. PROJECT.md has the architecture; SPEC.md has the pitch.
+- We are building Hack Harness, an Agent Development Environment for hackathon teams: shared context brain (Elasticsearch), safe merging for humans + agents (PR → Gitar → CI → merge; no merge queue on a personally-owned repo). Live at https://jam.cnh.radarhq.io, focus-first interface. PROJECT.md has the architecture; README.md describes the product.
 - We use this product to build itself. From the moment `/capture` works, team conversations go into the brain and agents read it via the `context` MCP server.
 - Judges read the repo. Write PRs you'd be proud to explain out loud.
 
@@ -14,7 +14,7 @@ Rules for every coding agent and human in this repo. Read order: this file → P
 | **Backend** | Cam (`@chito-systems`) | Fable session on Cam's laptop | A · Brain `stream:A-brain`, C · Platform `stream:C-platform`, D · MCP `stream:D-mcp` | `apps/api/`, `apps/worker/`, `packages/shared/`, `packages/mcp/`, `Dockerfile*`, `deploy/`, `argocd/`, `.github/`, `scripts/`, root config (`package.json`, `pnpm-*.yaml`, `tsconfig.base.json`, `biome.json`) |
 | **Frontend** | Jake (`@quakeob`) | Fable session on Jake's laptop | B · UI `stream:B-ui` | `apps/web/` — everything in it, including its `package.json` |
 
-Shared docs: `PITCH.md` (anyone, add under your own heading, never rewrite someone else's lines), `NOW.md` (orchestrators only), `PROJECT.md` / `SPEC.md` / `AGENTS.md` (change in a docs-only PR, tag the other human).
+Shared docs: `README.md`, `PROJECT.md`, `AGENTS.md` (change in a docs-only PR, tag the other human).
 
 ### The seven rules that keep two agent teams from colliding
 1. **The contract is `packages/shared/src/types.ts`.** Routes, request and response shapes, SSE events. Frontend builds against it; backend implements it. It changes only in its own PR containing nothing else, and the PR tags both humans. If the contract doesn't have what you need, ask on the Board; don't invent a field.
