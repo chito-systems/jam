@@ -92,6 +92,9 @@ function PhoneApp({ id, onSignOut, onLoaded }: { id: Identity; onSignOut: () => 
 
 // ---------- identity ----------
 
+/** The team that built JAM. Its workspace is the public demo: a guest opens it in one click. */
+const DEMO_TEAM = 'hh'
+
 function Join({ onJoin }: { onJoin: (id: Identity) => void }) {
   const [team, setTeam] = useState('')
   const [who, setWho] = useState('')
@@ -118,6 +121,10 @@ function Join({ onJoin }: { onJoin: (id: Identity) => void }) {
         <button type="submit" className="btn primary" disabled={!team.trim() || !who.trim()}>
           Open the workspace
         </button>
+        <button type="button" className="btn" onClick={() => onJoin(saveIdentity(DEMO_TEAM, 'guest'))}>
+          Look around as a guest
+        </button>
+        <p className="dim join-note">Opens the workspace of the team that built JAM. It is live, so what you add is real.</p>
       </form>
     </div>
   )
