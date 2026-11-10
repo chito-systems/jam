@@ -1498,6 +1498,10 @@
   .join-head .wm {
     font-size: 24px;
   }
+  .join-note {
+    margin: 0;
+    font-size: 12px;
+  }
   label {
     display: grid;
     gap: 5px;
