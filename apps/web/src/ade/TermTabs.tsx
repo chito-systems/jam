@@ -1,7 +1,7 @@
 import type { AgentDoc } from '@hh/shared'
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { agentName } from './live'
-import { agentCommand, agentTitle, MAX_SESSIONS, NO_TABS, nextAgentName, nextShellTitle, type Side, tabsReducer } from './sessions'
+import { agentCommand, agentTitle, loadSide, MAX_SESSIONS, NO_TABS, nextAgentName, nextShellTitle, type Side, tabsReducer } from './sessions'
 import { Terminal } from './Terminal'
 import './tabs.css'
 
@@ -17,7 +17,7 @@ export type TermTabsApi = ReturnType<typeof useTermTabs>
 export function useTermTabs(me: string, team: string, agents: AgentDoc[]) {
   const [tabs, dispatch] = useReducer(tabsReducer, NO_TABS)
   const newAgent = useCallback(
-    (side: Side = 'backend') => {
+    (side: Side = loadSide()) => {
       const name = nextAgentName(me, [...tabs.list.flatMap((s) => (s.agentName ? [s.agentName] : [])), ...agents.map((a) => agentName(a.id))])
       const run = agentCommand(window.location.origin, team, name, side, DRY)
       dispatch({ t: 'add', s: { id: `t${++seq}`, title: agentTitle(name, me), kind: 'agent', agentName: name, side, run } })
@@ -41,7 +41,7 @@ export function useTermTabs(me: string, team: string, agents: AgentDoc[]) {
 
 export function TabStrip({ t, first = 'Team feed' }: { t: TermTabsApi; first?: string }) {
   const [menu, setMenu] = useState(false)
-  const [side, setSide] = useState<Side>('backend')
+  const [side, setSide] = useState<Side>(loadSide)
   const box = useRef<HTMLDivElement>(null)
   const strip = useRef<HTMLDivElement>(null)
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when the active tab changes.
@@ -82,7 +82,10 @@ export function TabStrip({ t, first = 'Team feed' }: { t: TermTabsApi; first?: s
         ))}
       </div>
       <div className="ctabs-add" ref={box}>
-        <button type="button" className="ctab ctab-plus" aria-label="New terminal" aria-haspopup="menu" aria-expanded={menu} disabled={t.full} title={t.full ? `${MAX_SESSIONS} terminals open` : 'New terminal'} onClick={() => setMenu(!menu)}>
+        <button type="button" className="ctab ctab-plus" aria-label="New terminal" aria-haspopup="menu" aria-expanded={menu} disabled={t.full} title={t.full ? `${MAX_SESSIONS} terminals open` : 'New terminal'} onClick={() => {
+          if (!menu) setSide(loadSide())
+          setMenu(!menu)
+        }}>
           +
         </button>
         {menu && (

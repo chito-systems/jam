@@ -1,0 +1,128 @@
+/* Where you are: one focus ring and one active style. Then the settings and cheat-sheet cards.
+   Only ade.css tokens. Loaded after ade.css, tabs.css and fun.css, so these win. */
+
+/* Keyboard focus: an ink ring outside the element, pulled inside where a scrolling pane would clip it. */
+.ade :focus-visible,
+.fun-seg button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.ade :is(.left, .right, .ctabs-scroll, .palette ul, .panel, .transcript, .sheet-body) :focus-visible {
+  outline-offset: -2px;
+}
+.ade .palette input:focus-visible,
+.ade .sheet:focus-visible {
+  outline: 0;
+}
+
+/* Selected: ink text, panel fill, semibold, and an ink bar on the edge it hangs from. */
+.ade :is(.session, .ag, .hu-person)[aria-current="true"] {
+  color: var(--ink);
+  background: var(--panel);
+  box-shadow: inset 3px 0 0 var(--ink), inset 0 0 0 1px var(--line);
+}
+.ade :is(.session, .ag, .hu-person)[aria-current="true"] :is(.s-title, .ag-name, .hu-name) {
+  font-weight: 600;
+}
+.ade .ctab[aria-selected="true"],
+.ade .tabs button[aria-selected="true"],
+.ade .ptabs button[aria-selected="true"],
+.fun-seg button[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--panel);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--ink), inset 0 0 0 1px var(--line);
+}
+
+/* ---------- settings and the cheat sheet (the palette's card) ---------- */
+
+.ade .sheet {
+  width: min(600px, 100%);
+}
+.ade .sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 8px 8px 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+.ade .sheet-body {
+  max-height: 66vh;
+  overflow-y: auto;
+  padding: 4px 16px 12px;
+}
+.ade .set-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.ade .set-row:last-child {
+  border-bottom: 0;
+}
+.ade .set-k {
+  width: 120px;
+  flex: none;
+  font: 11px var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.ade .set-id label {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+}
+.ade .set-id input {
+  width: 150px;
+  font: 13px var(--sans);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+.ade .set-id .btn {
+  align-self: end;
+}
+.ade .set-row a {
+  color: var(--ink);
+}
+.ade .cheat dl {
+  margin: 0 0 6px;
+}
+.ade .cheat-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+}
+.ade .cheat-row dt {
+  width: 120px;
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+.ade .cheat-row dd {
+  margin: 0;
+}
+.ade .left-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.ade .left-foot .text-btn {
+  margin-left: auto;
+  font-size: 12px;
+}
+.ade .palette .hint-kbd {
+  margin-left: auto;
+}
+.ade .palette .hint + kbd {
+  margin-left: 8px;
+}
