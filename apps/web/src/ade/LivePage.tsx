@@ -146,7 +146,8 @@ function Shell({ id, theme, mode, setMode, flip, onIdentity, onSignOut, onLoaded
   const [settings, setSettings] = useState(false)
   const [cheat, setCheat] = useState(false)
   const pendingG = useRef<number | null>(null)
-  const [guide, setGuide] = useState(() => !guideSeen())
+  // A guest came to look, not to set up: the workspace shows first, and the guide stays one click away.
+  const [guide, setGuide] = useState(() => !guideSeen() && id.who !== 'guest')
   const [widths, setWidths] = useState({ left: 256, right: 340 })
   const [side, setSide] = useState<'none' | 'left' | 'right'>('none')
   const [now, setNow] = useState(Date.now)
