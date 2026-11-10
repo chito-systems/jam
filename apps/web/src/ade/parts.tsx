@@ -66,29 +66,44 @@ export function FreezeClock() {
 // ---------- theme ----------
 
 type Theme = 'light' | 'dark'
+/** What the person picked: a theme, or follow the system. */
+export type ThemeMode = Theme | 'system'
 
-function initialTheme(): Theme {
+const DARK = '(prefers-color-scheme: dark)'
+const systemTheme = (): Theme => (window.matchMedia(DARK).matches ? 'dark' : 'light')
+
+function initialMode(): ThemeMode {
   try {
     const saved = localStorage.getItem('jam-theme')
     if (saved === 'light' || saved === 'dark') return saved
   } catch (e) {
     console.warn('reading jam-theme from localStorage failed; using the system setting', e)
   }
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  return 'system'
 }
 
-export function useTheme(): { theme: Theme; flip: () => void } {
-  const [theme, setTheme] = useState<Theme>(initialTheme)
+export function useTheme(): { theme: Theme; mode: ThemeMode; flip: () => void; setMode: (m: ThemeMode) => void } {
+  const [mode, setMode] = useState<ThemeMode>(initialMode)
+  const [sys, setSys] = useState<Theme>(systemTheme)
+  useEffect(() => {
+    const mq = window.matchMedia(DARK)
+    const on = () => setSys(systemTheme())
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  const theme = mode === 'system' ? sys : mode
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     try {
-      localStorage.setItem('jam-theme', theme)
+      // "system" is the absence of a saved theme, which other pages already read that way.
+      if (mode === 'system') localStorage.removeItem('jam-theme')
+      else localStorage.setItem('jam-theme', mode)
     } catch (e) {
       console.warn('saving jam-theme to localStorage failed; the theme applies for this visit only', e)
     }
-  }, [theme])
-  const flip = useCallback(() => setTheme((t) => (t === 'dark' ? 'light' : 'dark')), [])
-  return { theme, flip }
+  }, [theme, mode])
+  const flip = useCallback(() => setMode(theme === 'dark' ? 'light' : 'dark'), [theme])
+  return { theme, mode, flip, setMode }
 }
 
 /** Shows the mode a click switches to: a sun in dark mode, a moon in light. */
@@ -114,6 +129,16 @@ export function SoundIcon({ on }: { on: boolean }) {
   )
 }
 
+export function GearIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="2.2" />
+      <path d="M8 1.8v1.8M8 12.4v1.8M1.8 8h1.8M12.4 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3" />
+      <circle cx="8" cy="8" r="4.6" />
+    </svg>
+  )
+}
+
 export function MenuIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -133,7 +158,7 @@ export function PaneIcon() {
 
 // ---------- palette ----------
 
-export type Command = { id?: string; label: string; hint?: string; agent?: string; run: () => void }
+export type Command = { id?: string; label: string; hint?: string; keys?: string; agent?: string; run: () => void }
 
 export function Palette({ commands, onClose }: { commands: Command[]; onClose: () => void }) {
   const [q, setQ] = useState('')
@@ -196,6 +221,7 @@ export function Palette({ commands, onClose }: { commands: Command[]; onClose: (
                 {c.agent ? <Mark agent={c.agent} size={14} /> : <span className="glyph-space" />}
                 <span>{c.label}</span>
                 {c.hint && <span className="hint">{c.hint}</span>}
+                {c.keys && <kbd className={c.hint ? undefined : 'hint-kbd'}>{c.keys}</kbd>}
               </button>
             </li>
           ))}
